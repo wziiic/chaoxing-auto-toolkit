@@ -43,3 +43,6 @@ env/
 *.log
 .DS_Store
 Thumbs.db
+
+# 从客户端提取的图标（第三方商标资源，不纳入仓库）
+assets/*.ico

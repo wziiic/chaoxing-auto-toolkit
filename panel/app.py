@@ -23,6 +23,7 @@ API 文档:
 import json
 import os
 import re
+import socket
 import subprocess
 import sys
 import threading
@@ -556,6 +557,32 @@ def get_job(job_id: str):
         return json.loads(json.dumps(j, ensure_ascii=False))
 
 
+def _port_in_use(host: str, port: int) -> bool:
+    s = socket.socket()
+    s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+    try:
+        # 能连上说明已有服务在监听
+        s.settimeout(1.0)
+        s.connect(("127.0.0.1", port))
+        return True
+    except OSError:
+        return False
+    finally:
+        s.close()
+
+
+def _open_browser(url: str, delay: float = 1.2):
+    if os.environ.get("LXT_NO_BROWSER") == "1":
+        return
+    def go():
+        try:
+            import webbrowser
+            webbrowser.open(url)
+        except Exception:
+            pass
+    threading.Timer(delay, go).start()
+
+
 def main():
     import uvicorn
     cfg = load_config()
@@ -564,7 +591,16 @@ def main():
     token = (cfg.get("access_token") or "").strip()
 
     shown = "127.0.0.1" if host in ("0.0.0.0", "::") else host
-    print(f"面板地址: http://{shown}:{port}/")
+    url = f"http://{shown}:{port}/" + (f"?token={token}" if token else "")
+
+    # 端口已被占用：多半是面板已经在跑，直接打开浏览器即可
+    if _port_in_use(host, port):
+        print(f"📌 {port} 端口已有服务在运行，看起来面板已经启动了。")
+        print(f"   直接打开: {url}")
+        _open_browser(url, delay=0.3)
+        return
+
+    print(f"面板地址: {url}")
     print(f"API 文档: http://{shown}:{port}/docs")
 
     if host in ("0.0.0.0", "::"):
@@ -573,11 +609,13 @@ def main():
             print("    任何人只要连上同一网络，就能操作你的学习通账号、消耗你的 API Key。")
             print("    强烈建议在 panel/config.json 里设置 access_token 后重启。\n")
         else:
-            print(f"🔒 局域网模式：访问需带口令，如 http://{shown}:{port}/?token=***\n")
+            print(f"🔒 局域网模式：访问需带口令\n")
 
     if token:
         print("🔑 已启用访问口令（/api/* 需要 X-Access-Token 或 ?token=）")
 
+    print("正在启动服务，稍后会自动打开浏览器…（不想自动打开可设 LXT_NO_BROWSER=1）")
+    _open_browser(url, delay=1.8)
     uvicorn.run(app, host=host, port=port, log_level="warning")
 
 

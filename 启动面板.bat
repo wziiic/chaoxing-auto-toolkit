@@ -1,22 +1,30 @@
 @echo off
-chcp 65001 >nul
-title 学习通作业面板
+title Chaoxing Panel
 cd /d "%~dp0"
-
+set PYTHONUNBUFFERED=1
 set "PY="
-where py >nul 2>nul && set "PY=py -3"
-if not defined PY (
-  where python >nul 2>nul && set "PY=python"
-)
-if not defined PY (
-  echo 没找到 Python，请先安装 Python 3.9+ 并加入 PATH。
-  pause
-  exit /b 1
-)
 
-echo 正在启动面板…
-echo.
+python -c "import requests,Crypto,fastapi" >nul 2>nul
+if not errorlevel 1 set "PY=python"
+if defined PY goto runpy
+
+py -3.10 -c "import requests,Crypto,fastapi" >nul 2>nul
+if not errorlevel 1 set "PY=py -3.10"
+if defined PY goto runpy
+
+py -3 -c "import requests,Crypto,fastapi" >nul 2>nul
+if not errorlevel 1 set "PY=py -3"
+if defined PY goto runpy
+
+echo No Python with dependencies found.
+echo Run:  pip install -r requirements.txt
+echo then double-click this file again.
+pause
+exit /b 1
+
+:runpy
 %PY% "%~dp0panel\app.py"
 echo.
-echo 面板已退出。按任意键关闭。
+echo Panel stopped. Close this window.
 pause >nul
+exit /b 0
