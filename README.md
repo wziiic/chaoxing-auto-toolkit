@@ -47,6 +47,53 @@ python panel/app.py
 
 打开 http://127.0.0.1:8765/ ，在「LLM 设置」里填 API Key（或复制 `panel/config.example.json` 为 `panel/config.json` 再填）。
 
+## 分享给别人用：对方需要准备什么
+
+### 只需要填一样东西
+
+| 要填的 | 填在哪 | 说明 |
+|---|---|---|
+| **LLM API Key** | 面板「LLM 设置」，或 `panel/config.json` 的 `llm.api_key` | 唯一必填项。用官方 DeepSeek 时模型填 `deepseek-chat` |
+
+### 不需要填的（会自动获取）
+
+| 项目 | 为什么不用填 |
+|---|---|
+| Cookie / 登录凭据 | `grab_cookie.py` 从**对方自己电脑上**的桌面端解密 |
+| 课程 ID、班级 ID、作业 ID | `list_works.py` 自动列出 |
+| 一次性 `dowork` 链接 | `batch_resolve.py` 用浏览器自动生成 |
+| 端口 | 默认 8765，冲突才改 |
+
+### 对方必须满足的环境前提
+
+1. **Windows**（脚本依赖 DPAPI 与 Chrome 路径）
+2. **Python 3.9+** 且在 PATH
+3. **Chrome 已安装**
+4. **学习通桌面端已安装并登录过至少一次** ← 最关键，Cookie 从这里来
+5. 能联网访问 chaoxing.com 与所选 LLM 服务
+
+### 对方上手三步
+
+```bash
+pip install -r requirements.txt
+python doctor.py          # 自检：哪项不满足会直接提示怎么修
+# 然后双击 启动面板.bat
+```
+
+`doctor.py` 会逐项检查 Python / 依赖 / Chrome / 桌面端 / Cookie 解密 / LLM 配置 / 端口，并给出修复建议。
+
+### 常见不适配情况
+
+| 现象 | 原因 | 处理 |
+|---|---|---|
+| 提示找不到 `%APPDATA%\cxstudy` | 桌面端是别的发行版，或从未登录 | 登录一次；若目录名不同，改 `lxt.py` 里 `load_cookies_for_browser` 的路径 |
+| Cookie 解出 0 条 / 缺 `_uid` | 桌面端处于未登录状态 | 重新登录桌面端再跑 |
+| `work/task` 被弹登录页 | 网页端会话未建立 | 属正常，走 `batch_resolve.py`（浏览器会自动补 SSO） |
+| 提示 `--remote-debugging-port: bad option` | 桌面端有参数校验 | 正常现象，本方案不依赖 CDP，无需处理 |
+| 自动作答报模型不存在 | 用了官方 API 却填了内部模型名 | 改为 `deepseek-chat` 或 `deepseek-reasoner` |
+
+> 每人必须用**自己的账号**在自己电脑上跑，不能共用别人的 `cookie.txt`——那是账号钥匙。
+
 ## 实测表现
 
 以「党史章节测试 50 题」（已确认满分 100）为基准做的模型对比：
