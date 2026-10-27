@@ -14,43 +14,50 @@
 - **LLM 自动作答**：兼容 OpenAI 协议（DeepSeek / 通义 / Kimi / 本地 Ollama）
 - **图形面板 + REST API**：批量抓题、批量作答、看答案、核对、交卷
 - **默认只暂存不交卷**，交卷需二次确认
+- **一键自举**：首次双击 `启动面板.bat` 就自动装依赖、建桌面快捷方式、启动并打开浏览器
 
-## 安装
+## 安装（真的只要一步）
 
 ```bash
 git clone <this-repo>
-cd <repo>
-pip install -r requirements.txt
-python -m playwright install   # 可选：若用本机已装 Chrome，可不装（脚本用 channel="chrome"）
 ```
+
+然后**双击 `启动面板.bat`**。它会自动：
+
+```
+▶ 检查依赖        ← 缺什么就自动 pip install（失败换清华源重试）
+▶ 检查桌面快捷方式  ← 没有就创建桌面「学习通面板」
+▶ 检查学习通桌面端  ← 没登录会提醒
+▶ 启动面板        ← 并自动打开浏览器
+```
+
+首次装依赖约 1～3 分钟。之后再启动，双击桌面图标即可。
 
 前置条件：
 
-1. Windows（脚本用到 DPAPI 解密与 Chrome 路径）
-2. 已安装并**登录**学习通桌面端（`%APPDATA%\cxstudy` 会被读取）
-3. 本机有 Chrome
+1. Windows（用到 DPAPI 解密）
+2. Python 3.9+（装的时候勾 `Add python.exe to PATH`）
+3. Chrome 或 Edge（都没有会自动用 Playwright 自带内核）
+4. 已安装并**登录**学习通桌面端（`%APPDATA%\cxstudy` 会被读取）
 
-## 快速开始
+> 想手动控制的话也可以：`pip install -r requirements.txt` 后 `python panel/app.py`。
 
-```bash
-# 1. 从桌面端提取 Cookie
-python grab_cookie.py
-
-# 2. 列出全部作业
-python list_works.py
-
-# 3. 启动面板
-双击 启动面板.bat
-# 或
-python panel/app.py
-```
+## 快速开始（面板）
 
 打开 http://127.0.0.1:8765/ ，在「LLM 设置」里填 API Key（或复制 `panel/config.example.json` 为 `panel/config.json` 再填）。
+
+命令行方式仍可用：
+
+```bash
+python grab_cookie.py    # 从桌面端提取 Cookie（面板会自动做，一般不用手动跑）
+python list_works.py     # 列出全部作业
+python panel/app.py      # 启动面板
+```
 
 ## 分享给别人用
 
 - **详细步骤（可直接发给对方）**：[`ONBOARDING.md`](ONBOARDING.md)
-- **一句话版**：对方在自己电脑上 clone 本项目 → `pip install -r requirements.txt` → `python doctor.py` 自检 → 填自己的 LLM API Key → 双击 `启动面板.bat`
+- **一句话版**：clone 本项目 → 双击 `启动面板.bat`（自动装依赖 + 建快捷方式 + 开网页）→ 填自己的 LLM API Key → 开始用
 
 ## 分享给别人用：对方需要准备什么
 
@@ -116,16 +123,20 @@ python doctor.py          # 自检：哪项不满足会直接提示怎么修
 
 ```
 lxt.py                 主程序：fetch / parse / loadhtml / save / submit / verify
+bootstrap.py           一键自举：装依赖 + 建快捷方式 + 启动
+doctor.py              环境自检（排错用）
 grab_cookie.py         从桌面端解密 Cookie（DPAPI + AES-GCM）
 list_works.py          作业清单
-batch_resolve.py       批量取作业页 + 解析（Playwright + Chrome）
+batch_resolve.py       批量取作业页 + 解析（Playwright + Browser）
 resolve_work.py        单份取作业页
 show_work.py           打印题目
 check_all.py           批量核对已保存答案
 panel/app.py           面板后端（FastAPI）
 panel/static/index.html 面板前端
 panel/config.example.json 配置模板
-启动面板.bat            一键启动
+tools/make_shortcut.py 创建桌面快捷方式
+tools/img2ico.py       图片转多尺寸 .ico（换图标用）
+启动面板.bat            双击这个（自举启动）
 ```
 
 ## 安全说明

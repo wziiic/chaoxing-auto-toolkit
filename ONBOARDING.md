@@ -1,135 +1,81 @@
 # 新同学上手指南（Windows）
 
-照着做，大约 15 分钟。全程**不需要**任何人把账号、Cookie、API Key 发给你——你自己生成。
+**核心就一句话：下载项目 → 双击 `启动面板.bat` → 等它自己装好并弹出网页。**
+
+首次运行会自动完成：装依赖 → 建桌面快捷方式 → 启动服务 → 打开浏览器。
+之后每次只需双击**桌面上的「学习通面板」图标**。
 
 ---
 
-## 第 0 步：先确认你能不能拿到代码
+## 第 0 步：拿到代码
 
-这个仓库默认是**私有**的。下面三种方式任选，选完再继续第 1 步。
+仓库默认**私有**，三种方式任选：
 
-### 方式 A：让作者把你加成协作者（推荐）
+| 方式 | 说明 |
+|---|---|
+| A. 作者加你为协作者（推荐） | 作者在 Settings → Collaborators 添加你的 GitHub 用户名，你接受邀请后即可 clone |
+| B. 作者改成公开 | 作者执行 `gh repo edit <owner>/<repo> --visibility public` |
+| C. 作者发压缩包 | 解压到任意目录，如 `D:\chaoxing-tool`（以后更新要重新要包） |
 
-作者在仓库 → Settings → Collaborators → Add people → 填你的 GitHub 用户名。
-你接受邀请后就能 clone。
-
-### 方式 B：作者把仓库改成公开
-
-作者执行 `gh repo edit <owner>/<repo> --visibility public`。
-之后任何人可直接 clone。
-
-### 方式 C：作者直接发你压缩包
-
-作者把仓库打包（可以不带 `.git`），你解压到任意目录，例如 `D:\chaoxing-tool`。
-缺点：以后更新要重新要包。
-
-> ⚠️ 不管哪种方式，**作者都不应该把他的 `cookie.txt` 或 `panel/config.json` 发给你**——里面有他的登录态和 API Key，而且对你没用。
+> ⚠️ 作者不应该把他的 `cookie.txt` / `panel/config.json` 发给你——那是他的登录态和 Key，对你也没用。
 
 ---
 
 ## 第 1 步：装 Python（3.9 或更高）
 
 1. 打开 https://www.python.org/downloads/
-2. 下载 Windows 安装包，运行
-3. **安装第一屏一定要勾上 `Add python.exe to PATH`**
-4. 装完打开「命令提示符」（Win+R → `cmd` → 回车），验证：
+2. 下载 Windows 安装包并运行
+3. **第一屏一定要勾 `Add python.exe to PATH`**
+4. 验证：Win+R → `cmd` →
 
 ```cmd
 python --version
 ```
 
-看到 `Python 3.9.x` 或更高即可。若提示"不是内部或外部命令"，说明没加 PATH，重装并勾选。
+显示 `Python 3.9.x` 或更高即可。
+
+> 装多个版本没关系，启动脚本会自动挑一个可用且装了依赖的。
 
 ---
 
-## 第 2 步：装浏览器
+## 第 2 步：装浏览器 + 学习通桌面端
 
-优先 **Google Chrome**（https://www.google.com/chrome/）。
+**浏览器**：Chrome 或 Edge 任一即可（脚本会自动降级）。
 
-没有 Chrome 也可以：
-- 系统自带 Edge 也行（脚本会自动降级到 Edge）
-- 或者执行一次 `python -m playwright install chromium`
+**学习通桌面端**（最关键）：
 
----
-
-## 第 3 步：装学习通桌面端并登录（最关键）
-
-1. 到官网下载「学习通」Windows 版并安装
+1. 官网下载「学习通」Windows 版并安装
 2. **打开并登录你自己的账号**
-3. 随便点进一门课，确认能正常看到内容
+3. 点进任意一门课，确认能正常显示
 
-> 这一步是整套工具的**身份来源**。没有它，工具拿不到你的登录态，什么都做不了。
-> 装完不用一直开着，登录过一次、Cookie 在本地就行。
-
----
-
-## 第 4 步：把代码弄到本地
-
-打开「命令提示符」，进入你想放的目录：
-
-```cmd
-cd /d D:\
-git clone https://github.com/<作者>/chaoxing-auto-toolkit.git
-cd chaoxing-auto-toolkit
-```
-
-没有装 Git？用方式 C 的压缩包，然后 `cd /d 你的解压目录`。
+> 工具正是从桌面端读出登录态的。没登录过 → 后面抓题一定失败。
 
 ---
 
-## 第 5 步：装依赖
+## 第 3 步：双击 `启动面板.bat`
 
-```cmd
-pip install -r requirements.txt
+进入项目文件夹，双击 **`启动面板.bat`**。
+
+它会自动依次做：
+
+```
+▶ 检查依赖        ← 缺什么就自动 pip install（失败会换清华源重试）
+▶ 检查桌面快捷方式  ← 没有就在桌面创建「学习通面板」
+▶ 检查学习通桌面端  ← 没登录会提醒你
+▶ 启动面板        ← 并自动打开浏览器
 ```
 
-如果下载慢，换国内源：
+首次装依赖大约 1～3 分钟，**保持网络、别关黑窗口**。
 
-```cmd
-pip install -r requirements.txt -i https://pypi.tuna.tsinghua.edu.cn/simple
-```
+看到浏览器自动打开 `http://127.0.0.1:8765/` 就成功了。
+
+> 如果 Windows 弹"是否允许此应用通过防火墙"，点允许（仅本机访问时其实不需要联网权限）。
 
 ---
 
-## 第 6 步：跑自检（重要）
+## 第 4 步：填 LLM API Key
 
-```cmd
-python doctor.py
-```
-
-它会逐项检查并告诉你哪里不对。**理想输出是全绿：**
-
-```
-✅ Python 版本 ≥ 3.9        3.10.6
-✅ 依赖包                    requests/pycryptodome/playwright/fastapi/uvicorn 齐全
-✅ Chrome 浏览器             C:\Program Files\Google\Chrome\Application\chrome.exe
-✅ 学习通桌面端 + 已登录        C:\Users\你\AppData\Roaming\cxstudy
-✅ Cookie 解密               19 条 Cookie，uid=xxxxxx
-✅ LLM 配置                  已配置 key，模型=deepseek-chat
-✅ 面板端口                   8765 可用
-✅ 监听地址安全               仅本机可访问（安全）
-```
-
-有 ❌ 就按下面对应项处理，处理完重跑：
-
-| 未通过项 | 处理 |
-|---|---|
-| Python 版本 | 装 3.9+ 并加 PATH |
-| 依赖包 | 重跑 `pip install -r requirements.txt` |
-| Chrome 浏览器 | 装 Chrome/Edge，或 `python -m playwright install chromium` |
-| 学习通桌面端 | 装桌面端并**登录一次** |
-| Cookie 解密 | 桌面端处于未登录状态，重新登录 |
-| LLM 配置 | 见第 7 步 |
-| 面板端口 | 端口被占，改 `panel/config.json` 里的 `port` |
-| 监听地址安全 | 见文末「手机访问」 |
-
----
-
-## 第 7 步：配 LLM（自动作答用）
-
-### 方式 1：面板里填（推荐）
-
-先启动面板（第 9 步），在顶部「LLM 设置」填：
+面板顶部「LLM 设置」：
 
 | 字段 | 填什么 |
 |---|---|
@@ -137,27 +83,9 @@ python doctor.py
 | 模型 | `deepseek-chat` |
 | API Key | 你自己的 Key |
 
-点「保存设置」→ 点「测试连接」，看到"连接成功"即可。
+点「保存设置」→ 点「测试连接」，出现"连接成功"即可。
 
-### 方式 2：改配置文件
-
-把 `panel\config.example.json` 复制成 `panel\config.json`，然后编辑：
-
-```json
-{
- "port": 8765,
- "host": "127.0.0.1",
- "access_token": "",
- "llm": {
-  "base_url": "https://api.deepseek.com/v1",
-  "model": "deepseek-chat",
-  "api_key": "sk-你的Key"
- },
- "auto_submit": false
-}
-```
-
-其他服务商写法：
+其他服务商：
 
 | 服务 | base_url | model |
 |---|---|---|
@@ -166,77 +94,60 @@ python doctor.py
 | Kimi | `https://api.moonshot.cn/v1` | `moonshot-v1-8k` |
 | 本地 Ollama | `http://127.0.0.1:11434/v1` | `qwen2.5` |
 
-> `panel/config.json` 已被 `.gitignore` 忽略，不会误提交。但**别把它发给别人**。
+Key 只存在本机 `panel/config.json`，已被 `.gitignore` 忽略，不会误提交。
 
 ---
 
-## 第 8 步：第一次同步作业列表
+## 第 5 步：开始用
+
+1. 表格里勾选要做的作业（默认只显示「未提交」）
+2. 点 **「批量自动作答（暂存）」**
+   - 首次会先自动抓题，会弹一个 Chrome 窗口跑几秒，别去动它
+   - 然后调 LLM 出答案并保存
+3. 点每行 **「看答案」**，重点扫一眼多选题
+4. 确认无误再点 **「交卷」**（二次确认，交卷后不可改）
+
+> 默认只暂存不交卷。客观题保存后学习通可能直接显示「已完成」，这是自动批阅，属正常。
+
+---
+
+## 之后每次使用
+
+**双击桌面「学习通面板」图标**即可。它会：
+
+- 面板已在运行 → 直接打开网页，不重复起服务
+- 没运行 → 起来并打开网页
+
+黑窗口别关，关了就停服务。
+
+---
+
+## 排错
+
+先跑体检：
 
 ```cmd
-python list_works.py
+python doctor.py
 ```
 
-正常会打印出你的全部作业，并生成 `worklist.json`。
-
-如果报错：
-- 提示找不到 `cookie.txt` → 先跑 `python grab_cookie.py`
-- 提示被重定向到登录页 → 打开学习通桌面端确认还是登录状态，再重跑
-
----
-
-## 第 9 步：启动面板
-
-**双击 `启动面板.bat`**（或命令行 `python panel\app.py`）。
-
-窗口里会打印：
-
-```
-面板地址: http://127.0.0.1:8765/
-API 文档: http://127.0.0.1:8765/docs
-```
-
-浏览器打开 **http://127.0.0.1:8765/**
-
-> 这个窗口别关——关了面板就停了。它由你自己启动，跟别人无关。
-
----
-
-## 第 10 步：在面板里操作
-
-1. 顶部先填好 LLM 并「测试连接」
-2. 表格里勾选要做的作业（默认只显示「未提交」）
-3. 点 **「批量自动作答（暂存）」**
-   - 首次会先自动「抓题」（开一个 Chrome 窗口跑几秒，别去动它）
-   - 然后调 LLM 出答案并保存
-4. 日志区会滚动显示进度
-5. 做完后点每行的 **「看答案」**，重点扫一眼多选题
-6. 确认没问题再点 **「交卷」**（会二次确认，交卷后不可改）
-
-### 关于"交卷"
-
-- 默认流程是**只暂存**，不会自动交卷
-- 客观题保存后，学习通可能直接显示「已完成」（自动批阅），这属于正常
-- 想改答案就再跑一次「自动作答」，会覆盖
-
----
-
-## 常见问题
+它会逐项检查并给出修复建议。
 
 | 现象 | 原因 | 处理 |
 |---|---|---|
-| 面板突然打不开 | 黑窗口被关 / 进程结束 | 重新双击 `启动面板.bat`；查进程 `Get-NetTCPConnection -LocalPort 8765 -State Listen` |
-| 抓题时弹登录页 | 网页端会话未建立 | 正常，脚本会自动走 SSO；若一直失败，重开桌面端 |
-| 提示 `--remote-debugging-port: bad option` | 桌面端有参数校验 | 正常现象，本方案不依赖它，忽略 |
+| 双击后闪一下就没了 | 没装 Python 3.9+ | 装 Python 并勾 PATH |
+| 提示 `No Python with dependencies found` | 依赖没装成功 | 手动执行 `pip install -r requirements.txt -i https://pypi.tuna.tsinghua.edu.cn/simple` |
+| 面板打不开 | 进程被关 / 端口被占 | 重双击图标；或 `Get-NetTCPConnection -LocalPort 8765 -State Listen` 查看 |
+| 抓题弹登录页 | 桌面端未登录 | 打开学习通重新登录 |
+| 提示 `--remote-debugging-port: bad option` | 桌面端有参数校验 | 正常现象，本方案不依赖，忽略 |
 | 自动作答报"模型不存在" | 用了官方 API 却填内部模型名 | 模型改 `deepseek-chat` |
-| 多选题偶尔错 | 模型倾向漏选/全选 | 交卷前「看答案」人工复核；实测准确率约 98% |
-| 端口 8765 被占 | 别的程序占用 | 改 `config.json` 的 `port` |
-| Cookie 解密失败 | 桌面端退出登录了 | 重新登录桌面端 |
+| 多选题偶尔错 | 模型倾向漏选 | 交卷前「看答案」人工复核（实测准确率约 98%） |
+| 桌面图标是白底/模糊 | 图标缓存 | 按 F5 刷新桌面；或重启 explorer |
 
 ---
 
-## 手机访问（可选，同 WiFi）
+## 手机访问（可选，同一 WiFi）
 
-1. 改 `panel\config.json`：
+1. 编辑 `panel\config.json`：
 
 ```json
 "host": "0.0.0.0",
@@ -244,16 +155,16 @@ API 文档: http://127.0.0.1:8765/docs
 ```
 
 2. 重启面板
-3. 查电脑 IP：`ipconfig`，找 `IPv4 地址`，如 `192.168.1.8`
-4. 手机浏览器打开 `http://192.168.1.8:8765/?token=你的口令`
+3. `ipconfig` 查电脑 IPv4，例如 `192.168.1.8`
+4. 手机打开 `http://192.168.1.8:8765/?token=你的口令`
 
-> ⚠️ 只开 `0.0.0.0` 不设口令，同网段任何人都能操作你的账号、消耗你的 Key。程序会红字警告。
+> ⚠️ 只开 `0.0.0.0` 不设口令 = 同网段任何人都能操作你的账号、烧你的 Key。程序会红字警告。
 
 ---
 
 ## 安全与责任
 
-- `cookie.txt` 等于你的账号钥匙，**不要发给任何人**，不要提交到 Git
-- API Key 只存在本机 `panel/config.json`，别外传
-- 怀疑泄露：学习通「退出登录」刷新会话；LLM Key 去平台后台吊销重发
-- 本工具仅供个人学习辅助，作业代做的后果自负，请遵守学校规定
+- `cookie.txt` 等于你的账号钥匙，**不要发给任何人**，不要提交 Git
+- API Key 只在本机 `panel/config.json`
+- 怀疑泄露：学习通「退出登录」刷新会话；LLM Key 去后台吊销重发
+- 本工具仅供个人学习辅助，作业代做后果自负，请遵守学校规定
