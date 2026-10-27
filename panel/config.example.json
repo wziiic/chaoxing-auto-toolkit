@@ -1,0 +1,11 @@
+{
+ "_comment": "复制成 config.json 后填写。config.json 已被 .gitignore 忽略，不会提交。",
+ "port": 8765,
+ "llm": {
+  "base_url": "https://api.deepseek.com/v1",
+  "model": "deepseek-chat",
+  "api_key": "",
+  "temperature": 0
+ },
+ "auto_submit": false
+}

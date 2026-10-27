@@ -1,0 +1,387 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>学习通作业面板</title>
+<style>
+  :root{
+    --bg:#0f1419; --panel:#171d26; --panel2:#1e2733; --line:#2a3442;
+    --txt:#e6edf3; --dim:#8b98a8; --accent:#3b82f6; --ok:#22c55e;
+    --warn:#f59e0b; --err:#ef4444;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--txt);
+       font:14px/1.6 "Segoe UI","Microsoft YaHei",system-ui,sans-serif}
+  header{display:flex;align-items:center;gap:14px;padding:14px 22px;
+         border-bottom:1px solid var(--line);background:var(--panel);position:sticky;top:0;z-index:10}
+  header h1{font-size:16px;margin:0;font-weight:600}
+  .badge{font-size:12px;color:var(--dim)}
+  main{padding:20px 22px;max-width:1400px;margin:0 auto}
+  .card{background:var(--panel);border:1px solid var(--line);border-radius:10px;
+        padding:16px 18px;margin-bottom:18px}
+  .card h2{font-size:14px;margin:0 0 12px;color:var(--dim);font-weight:600;
+           text-transform:uppercase;letter-spacing:.04em}
+  table{width:100%;border-collapse:collapse}
+  th,td{text-align:left;padding:9px 10px;border-bottom:1px solid var(--line);
+        font-size:13px;vertical-align:middle}
+  th{color:var(--dim);font-weight:500;font-size:12px}
+  tr:hover td{background:var(--panel2)}
+  .st{display:inline-block;padding:1px 8px;border-radius:20px;font-size:12px}
+  .st-done{background:#12351f;color:#4ade80}
+  .st-todo{background:#3a2a12;color:#fbbf24}
+  .st-grade{background:#1a2b4a;color:#7dd3fc}
+  button{background:var(--panel2);color:var(--txt);border:1px solid var(--line);
+         border-radius:7px;padding:5px 11px;font-size:12px;cursor:pointer;transition:.15s}
+  button:hover{background:#28333f;border-color:#3b4757}
+  button.primary{background:var(--accent);border-color:var(--accent);color:#fff}
+  button.primary:hover{background:#2f6fd6}
+  button.danger{color:#fca5a5;border-color:#4a2626}
+  button.danger:hover{background:#3a1f1f}
+  button:disabled{opacity:.45;cursor:not-allowed}
+  .row{display:flex;gap:10px;align-items:center;flex-wrap:wrap}
+  input,select{background:#0d1218;border:1px solid var(--line);color:var(--txt);
+               border-radius:7px;padding:7px 10px;font-size:13px;width:100%}
+  .grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:12px}
+  label{display:block;font-size:12px;color:var(--dim);margin-bottom:5px}
+  #log{background:#0a0e13;border:1px solid var(--line);border-radius:8px;padding:12px;
+       height:240px;overflow:auto;font:12px/1.5 ui-monospace,Consolas,monospace;
+       white-space:pre-wrap;color:#9fb1c4}
+  .tabs{display:flex;gap:8px;margin-bottom:14px}
+  .tab{padding:6px 14px;border-radius:7px;cursor:pointer;font-size:13px;
+       border:1px solid var(--line);background:transparent;color:var(--dim)}
+  .tab.on{background:var(--panel2);color:var(--txt);border-color:#3b4757}
+  .hint{font-size:12px;color:var(--dim);margin-top:8px}
+  .dot{width:7px;height:7px;border-radius:50%;display:inline-block;margin-right:6px}
+  .dot.run{background:var(--warn);animation:pulse 1s infinite}
+  .dot.ok{background:var(--ok)} .dot.err{background:var(--err)}
+  @keyframes pulse{50%{opacity:.3}}
+  .nowrap{white-space:nowrap}
+</style>
+</head>
+<body>
+<header>
+  <h1>学习通作业面板</h1>
+  <span class="badge" id="statusBar">就绪</span>
+  <span style="flex:1"></span>
+  <button onclick="refreshWorks()">刷新列表</button>
+  <button onclick="location.reload()">重载页面</button>
+</header>
+
+<main>
+  <!-- 设置 -->
+  <div class="card">
+    <h2>LLM 设置（自动作答用）</h2>
+    <div class="grid">
+      <div>
+        <label>API Base URL</label>
+        <input id="cfgBase" placeholder="https://api.deepseek.com/v1">
+      </div>
+      <div>
+        <label>模型</label>
+        <input id="cfgModel" placeholder="deepseek-chat">
+      </div>
+      <div>
+        <label>API Key <span id="keyState" class="badge"></span></label>
+        <input id="cfgKey" type="password" placeholder="留空则不修改">
+      </div>
+      <div style="display:flex;align-items:flex-end;gap:10px">
+        <button class="primary" onclick="saveCfg()">保存设置</button>
+        <button onclick="testLLM()">测试连接</button>
+      </div>
+    </div>
+    <div class="hint">
+      兼容 OpenAI 协议的都能用：DeepSeek / 通义 / Kimi / 本地 Ollama 等。
+      默认只暂存不交卷。
+    </div>
+  </div>
+
+  <!-- 模型基准测试 -->
+  <div class="card">
+    <h2>模型基准测试（用已知答案打分，不保存不提交）</h2>
+    <div class="grid">
+      <div>
+        <label>基准作业 workId</label>
+        <input id="benchWork" value="57260630">
+      </div>
+      <div>
+        <label>对比模型（逗号分隔）</label>
+        <input id="benchModels" value="deepseek-chat,deepseek-reasoner">
+      </div>
+      <div style="display:flex;align-items:flex-end">
+        <button class="primary" onclick="runBench()">开始对比</button>
+      </div>
+    </div>
+    <div class="hint">
+      默认用「党史章节测试 50 题」当基准（该份已确认满分）。结果会显示准确率、分题型正确率、错题明细。
+    </div>
+  </div>
+
+  <!-- 作业 -->
+  <div class="card">
+    <div class="tabs">
+      <button class="tab on" data-filter="todo" onclick="setFilter('todo',this)">未提交</button>
+      <button class="tab" data-filter="all" onclick="setFilter('all',this)">全部</button>
+    </div>
+    <div class="row" style="margin-bottom:12px">
+      <button onclick="batch('resolve')">批量抓题</button>
+      <button class="primary" onclick="batch('auto')">批量自动作答（暂存）</button>
+      <button onclick="batch('verify')">批量核对</button>
+      <span class="badge" id="selInfo">未选择</span>
+    </div>
+    <table>
+      <thead>
+        <tr>
+          <th style="width:34px"><input type="checkbox" style="width:auto" onchange="toggleAll(this)"></th>
+          <th>课程</th><th>作业</th><th>状态</th><th>题量</th><th>进度</th>
+          <th style="width:290px">操作</th>
+        </tr>
+      </thead>
+      <tbody id="worksBody"><tr><td colspan="7" class="badge">加载中…</td></tr></tbody>
+    </table>
+  </div>
+
+  <!-- 日志 -->
+  <div class="card">
+    <h2>运行日志 <span id="jobState" class="badge"></span></h2>
+    <div id="log">等待任务…</div>
+  </div>
+</main>
+
+<script>
+let WORKS = [], FILTER = 'todo', CUR_JOB = null, POLL = null;
+
+async function api(path, opts){
+  const r = await fetch(path, opts);
+  if(!r.ok){
+    let d = await r.text();
+    throw new Error(d.slice(0,300));
+  }
+  return r.json();
+}
+
+function setStatus(t, cls){
+  const s = document.getElementById('statusBar');
+  s.innerHTML = (cls?`<span class="dot ${cls}"></span>`:'') + t;
+}
+
+function log(msg){
+  const el = document.getElementById('log');
+  if(el.dataset.init !== '1'){ el.textContent=''; el.dataset.init='1'; }
+  el.textContent += msg + '\n';
+  el.scrollTop = el.scrollHeight;
+}
+
+/* ---------- 配置 ---------- */
+async function loadCfg(){
+  const c = await api('/api/config');
+  document.getElementById('cfgBase').value = c.llm.base_url || '';
+  document.getElementById('cfgModel').value = c.llm.model || '';
+  document.getElementById('keyState').textContent =
+      c.llm.has_key ? `已配置 ${c.llm.api_key_masked||''}` : '未配置';
+}
+async function saveCfg(){
+  try{
+    await api('/api/config', {
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({
+        llm_base_url: document.getElementById('cfgBase').value,
+        llm_model: document.getElementById('cfgModel').value,
+        llm_api_key: document.getElementById('cfgKey').value
+      })
+    });
+    document.getElementById('cfgKey').value='';
+    log('✅ 设置已保存');
+    loadCfg();
+  }catch(e){ log('❌ 保存失败: '+e.message); }
+}
+async function testLLM(){
+  log('测试 LLM 连接…');
+  try{
+    const r = await fetch('/api/testllm', {method:'POST'});
+    const d = await r.json();
+    if(d.ok) log(`✅ 连接成功  模型=${d.model}  耗时=${d.latency}s`);
+    else     log('❌ '+d.msg);
+  }catch(e){ log('❌ '+e.message); }
+}
+
+/* ---------- 作业列表 ---------- */
+function stClass(s){
+  if(s.includes('未提交')) return 'st-todo';
+  if(s.includes('待批阅')) return 'st-grade';
+  return 'st-done';
+}
+
+async function refreshWorks(){
+  try{
+    setStatus('刷新中…','run');
+    const d = await api('/api/works?refresh=true');
+    WORKS = d.works;
+    renderWorks();
+    setStatus(`共 ${d.count} 个作业`, 'ok');
+  }catch(e){
+    setStatus('刷新失败','err');
+    log('❌ 刷新列表失败: '+e.message);
+  }
+}
+
+function setFilter(f, btn){
+  FILTER = f;
+  document.querySelectorAll('.tab').forEach(b=>b.classList.remove('on'));
+  btn.classList.add('on');
+  renderWorks();
+}
+
+function toggleAll(cb){
+  document.querySelectorAll('#worksBody input[type=checkbox]').forEach(x=>x.checked=cb.checked);
+  updateSel();
+}
+
+function updateSel(){
+  const n = document.querySelectorAll('#worksBody input[type=checkbox]:checked').length;
+  document.getElementById('selInfo').textContent = n ? `已选 ${n} 份` : '未选择';
+}
+
+function renderWorks(){
+  const tb = document.getElementById('worksBody');
+  const list = WORKS.filter(w => FILTER==='all' || w.status.includes('未提交'));
+  if(!list.length){
+    tb.innerHTML = '<tr><td colspan="7" class="badge">没有符合条件的作业</td></tr>';
+    return;
+  }
+  tb.innerHTML = list.map(w=>`
+    <tr>
+      <td><input type="checkbox" style="width:auto" value="${w.workId}" onchange="updateSel()"></td>
+      <td>${esc(w.course)}</td>
+      <td>${esc(w.title)}</td>
+      <td><span class="st ${stClass(w.status)}">${esc(w.status)}</span></td>
+      <td>${w.parsed ? '<span style="color:#4ade80">已抓</span>' : '<span class="badge">—</span>'}</td>
+      <td>${w.answered ? '已作答' : '<span class="badge">未作答</span>'}</td>
+      <td class="nowrap">
+        <button onclick="act('resolve','${w.workId}')">抓题</button>
+        <button onclick="act('auto','${w.workId}')" class="primary">自动作答</button>
+        <button onclick="showQ('${w.workId}')">看题</button>
+        <button onclick="showA('${w.workId}')">看答案</button>
+        <button onclick="act('submit','${w.workId}')" class="danger">交卷</button>
+      </td>
+    </tr>`).join('');
+  updateSel();
+}
+
+function esc(s){ return (s||'').replace(/[<>&]/g, c=>({'<':'&lt;','>':'&gt;','&':'&amp;'}[c])); }
+
+function selectedIds(){
+  return [...document.querySelectorAll('#worksBody input[type=checkbox]:checked')]
+         .map(x=>x.value);
+}
+
+/* ---------- 动作 ---------- */
+async function act(action, wid, opts={}){
+  const ids = opts.ids || [wid];
+  try{
+    setStatus(`${action} 运行中…`, 'run');
+    log(`▶ ${action} ${ids.join(',')}`);
+    const d = await api('/api/jobs', {
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({action, workIds:ids, submit: !!opts.submit})
+    });
+    pollJob(d.jobId);
+  }catch(e){
+    setStatus('失败','err');
+    log('❌ '+e.message);
+  }
+}
+
+async function batch(action){
+  const ids = selectedIds();
+  if(!ids.length){ alert('先在表格里勾选作业'); return; }
+  if(action==='submit' && !confirm(`确认交卷 ${ids.length} 份？交卷后无法修改。`)) return;
+  act(action, null, {ids});
+}
+
+function pollJob(jid){
+  if(POLL) clearInterval(POLL);
+  CUR_JOB = jid;
+  document.getElementById('jobState').innerHTML = '<span class="dot run"></span>运行中';
+  let cursor = 0;
+
+  POLL = setInterval(async ()=>{
+    try{
+      const j = await api('/api/jobs/'+jid);
+      while(cursor < j.log.length){ log(j.log[cursor++]); }
+      if(j.status !== 'running'){
+        clearInterval(POLL); POLL=null;
+        document.getElementById('jobState').innerHTML = j.status==='done'
+          ? '<span class="dot ok"></span>完成'
+          : '<span class="dot err"></span>出错';
+        setStatus(j.status==='done' ? '完成' : '出错', j.status==='done'?'ok':'err');
+        if(j.error) log('❌ '+j.error);
+        if(j.status==='done') refreshWorks();
+      }
+    }catch(e){ /* 轮询失败忽略 */ }
+  }, 900);
+}
+
+async function showQ(wid){
+  try{
+    const d = await api('/api/questions/'+wid);
+    log(`—— ${wid} 共 ${d.count} 题 ——`);
+    d.questions.forEach(q=>{
+      log(`[${q.num}] ${q.type} #${q.qid}\n  ${q.stem.slice(0,120)}`);
+      q.options.forEach(o=>log(`    ${o.data}  ${o.content.slice(0,70)}`));
+    });
+    log('（完整内容可在 API /api/questions/'+wid+' 取）');
+  }catch(e){
+    log('❌ '+e.message);
+  }
+}
+
+async function showA(wid){
+  try{
+    const d = await api('/api/answers/'+wid);
+    const n = Object.keys(d.answers).length;
+    log(`—— ${wid} 共 ${n} 条答案 ——`);
+    Object.entries(d.answers).forEach(([k,v])=>log(`  ${k} → ${v || '(空)'}`));
+  }catch(e){
+    log('❌ '+e.message);
+  }
+}
+
+/* ---------- 基准测试 ---------- */
+async function runBench(){
+  const wid = document.getElementById('benchWork').value.trim();
+  const models = document.getElementById('benchModels').value
+                   .split(',').map(s=>s.trim()).filter(Boolean);
+  log(`▶ 基准测试 ${wid}  模型: ${models.join(' / ')}`);
+  setStatus('基准测试中…','run');
+  try{
+    const r = await fetch('/api/bench', {
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({workId: wid, models})
+    });
+    const d = await r.json();
+    if(!r.ok){ throw new Error(d.detail || JSON.stringify(d)); }
+
+    d.results.forEach(x=>{
+      if(!x.ok){ log(`❌ ${x.model}: ${x.error}`); return; }
+      log(`\n=== ${x.model} ===`);
+      log(`准确率 ${x.accuracy}%  (${x.right}/${x.total})  耗时 ${x.latency}s`);
+      log(`分题型: ${Object.entries(x.byType).map(([k,v])=>k+' '+v).join('  ')}`);
+      if(x.wrongCount) log(`错 ${x.wrongCount} 题，前几道:`);
+      x.wrong.forEach(w=>log(`   #${w.qid} [${w.type}] 正确=${w.want} 模型=${w.got}  ${w.stem}`));
+    });
+    setStatus('基准测试完成','ok');
+  }catch(e){
+    setStatus('基准测试失败','err');
+    log('❌ '+e.message);
+  }
+}
+
+/* ---------- 启动 ---------- */
+(function init(){
+  loadCfg();
+  refreshWorks();
+})();
+</script>
+</body>
+</html>
