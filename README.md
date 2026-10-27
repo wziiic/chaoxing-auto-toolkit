@@ -47,6 +47,11 @@ python panel/app.py
 
 打开 http://127.0.0.1:8765/ ，在「LLM 设置」里填 API Key（或复制 `panel/config.example.json` 为 `panel/config.json` 再填）。
 
+## 分享给别人用
+
+- **详细步骤（可直接发给对方）**：[`ONBOARDING.md`](ONBOARDING.md)
+- **一句话版**：对方在自己电脑上 clone 本项目 → `pip install -r requirements.txt` → `python doctor.py` 自检 → 填自己的 LLM API Key → 双击 `启动面板.bat`
+
 ## 分享给别人用：对方需要准备什么
 
 ### 只需要填一样东西

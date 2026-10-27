@@ -151,7 +151,21 @@
 <script>
 let WORKS = [], FILTER = 'todo', CUR_JOB = null, POLL = null;
 
+/* 访问口令：从 ?token=xxx 读取并记住（局域网模式才需要） */
+const TOKEN = (() => {
+  const q = new URLSearchParams(location.search).get('token');
+  if(q){ localStorage.setItem('lxt_token', q); return q; }
+  return localStorage.getItem('lxt_token') || '';
+})();
+function authHeaders(extra){
+  const h = Object.assign({}, extra || {});
+  if(TOKEN) h['X-Access-Token'] = TOKEN;
+  return h;
+}
+
 async function api(path, opts){
+  opts = opts || {};
+  opts.headers = authHeaders(opts.headers);
   const r = await fetch(path, opts);
   if(!r.ok){
     let d = await r.text();
@@ -198,7 +212,7 @@ async function saveCfg(){
 async function testLLM(){
   log('测试 LLM 连接…');
   try{
-    const r = await fetch('/api/testllm', {method:'POST'});
+    const r = await fetch('/api/testllm', {method:'POST', headers: authHeaders()});
     const d = await r.json();
     if(d.ok) log(`✅ 连接成功  模型=${d.model}  耗时=${d.latency}s`);
     else     log('❌ '+d.msg);
@@ -356,7 +370,7 @@ async function runBench(){
   setStatus('基准测试中…','run');
   try{
     const r = await fetch('/api/bench', {
-      method:'POST', headers:{'Content-Type':'application/json'},
+      method:'POST', headers: authHeaders({'Content-Type':'application/json'}),
       body: JSON.stringify({workId: wid, models})
     });
     const d = await r.json();

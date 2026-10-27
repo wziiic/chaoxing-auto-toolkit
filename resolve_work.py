@@ -107,8 +107,8 @@ def main():
     print(f"[resolve] 注入 Cookie {len(cookies)} 条")
 
     with sync_playwright() as p:
-        browser = p.chromium.launch(channel="chrome", headless=not args.headed,
-                                    args=["--disable-blink-features=AutomationControlled"])
+        import lxt as _lxt
+        browser = _lxt.launch_chromium(p, headless=not args.headed)
         ctx = browser.new_context(
             user_agent=("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
                         "(KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36"),

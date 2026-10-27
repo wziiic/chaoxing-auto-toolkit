@@ -38,8 +38,7 @@ def resolve_all(targets, headed=False):
 
     results = []
     with sync_playwright() as p:
-        browser = p.chromium.launch(channel="chrome", headless=not headed,
-                                    args=["--disable-blink-features=AutomationControlled"])
+        browser = lxt.launch_chromium(p, headless=not headed)
         ctx = browser.new_context(user_agent=UA, viewport={"width": 1440, "height": 900})
         ctx.add_cookies(cookies)
         page = ctx.new_page()

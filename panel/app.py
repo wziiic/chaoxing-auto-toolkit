@@ -48,6 +48,11 @@ STATIC = os.path.join(HERE, "static")
 
 DEFAULT_CONFIG = {
     "port": 8765,
+    # 监听地址：127.0.0.1 = 只有本机能访问（默认，安全）
+    #           0.0.0.0  = 局域网可访问（务必同时设置 access_token）
+    "host": "127.0.0.1",
+    # 访问口令。非空时，/api/* 必须带 X-Access-Token 或 ?token=
+    "access_token": "",
     "llm": {
         "base_url": "https://api.deepseek.com/v1",
         "model": "deepseek-chat",
@@ -59,6 +64,23 @@ DEFAULT_CONFIG = {
 }
 
 app = FastAPI(title="学习通作业面板", version="1.0")
+
+
+@app.middleware("http")
+async def auth_guard(request, call_next):
+    """设置了 access_token 时，/api/* 必须带口令。"""
+    cfg = load_config()
+    token = (cfg.get("access_token") or "").strip()
+    path = request.url.path
+
+    if token and path.startswith("/api"):
+        given = (request.headers.get("X-Access-Token")
+                 or request.query_params.get("token")
+                 or "")
+        if given != token:
+            return JSONResponse({"detail": "缺少或错误的访问口令"}, status_code=401)
+
+    return await call_next(request)
 
 
 # ---------------------------------------------------------------- 配置
@@ -538,9 +560,25 @@ def main():
     import uvicorn
     cfg = load_config()
     port = int(os.environ.get("LXT_PANEL_PORT") or cfg.get("port", 8765))
-    print(f"面板地址: http://127.0.0.1:{port}/")
-    print(f"API 文档: http://127.0.0.1:{port}/docs")
-    uvicorn.run(app, host="127.0.0.1", port=port, log_level="warning")
+    host = os.environ.get("LXT_PANEL_HOST") or cfg.get("host", "127.0.0.1")
+    token = (cfg.get("access_token") or "").strip()
+
+    shown = "127.0.0.1" if host in ("0.0.0.0", "::") else host
+    print(f"面板地址: http://{shown}:{port}/")
+    print(f"API 文档: http://{shown}:{port}/docs")
+
+    if host in ("0.0.0.0", "::"):
+        if not token:
+            print("\n⚠️  警告：已监听所有网卡（局域网可访问），但没有设置 access_token！")
+            print("    任何人只要连上同一网络，就能操作你的学习通账号、消耗你的 API Key。")
+            print("    强烈建议在 panel/config.json 里设置 access_token 后重启。\n")
+        else:
+            print(f"🔒 局域网模式：访问需带口令，如 http://{shown}:{port}/?token=***\n")
+
+    if token:
+        print("🔑 已启用访问口令（/api/* 需要 X-Access-Token 或 ?token=）")
+
+    uvicorn.run(app, host=host, port=port, log_level="warning")
 
 
 if __name__ == "__main__":

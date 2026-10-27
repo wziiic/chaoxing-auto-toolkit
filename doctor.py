@@ -44,15 +44,24 @@ def c_packages():
 
 
 def c_chrome():
+    """Chrome 优先，其次 Edge；都没有则依赖 playwright 自带 chromium。"""
     cands = [
-        os.path.join(os.environ.get("ProgramFiles", ""), r"Google\Chrome\Application\chrome.exe"),
-        os.path.join(os.environ.get("ProgramFiles(x86)", ""), r"Google\Chrome\Application\chrome.exe"),
-        os.path.join(os.environ.get("LOCALAPPDATA", ""), r"Google\Chrome\Application\chrome.exe"),
+        ("Chrome", os.path.join(os.environ.get("ProgramFiles", ""), r"Google\Chrome\Application\chrome.exe")),
+        ("Chrome", os.path.join(os.environ.get("ProgramFiles(x86)", ""), r"Google\Chrome\Application\chrome.exe")),
+        ("Chrome", os.path.join(os.environ.get("LOCALAPPDATA", ""), r"Google\Chrome\Application\chrome.exe")),
+        ("Edge", os.path.join(os.environ.get("ProgramFiles(x86)", ""), r"Microsoft\Edge\Application\msedge.exe")),
+        ("Edge", os.path.join(os.environ.get("ProgramFiles", ""), r"Microsoft\Edge\Application\msedge.exe")),
     ]
-    for p in cands:
+    for name, p in cands:
         if p and os.path.exists(p):
-            return True, p
-    return False, "未找到 chrome.exe"
+            return True, f"{name}: {p}"
+    try:
+        root = os.path.join(os.environ.get("LOCALAPPDATA", ""), "ms-playwright")
+        if os.path.isdir(root) and any("chromium" in d for d in os.listdir(root)):
+            return True, f"Playwright 自带 chromium: {root}"
+    except Exception:
+        pass
+    return False, "未找到 Chrome / Edge / playwright chromium"
 
 
 def c_desktop():
@@ -120,14 +129,29 @@ def c_port():
         s.close()
 
 
+def c_bind():
+    cfg_path = os.path.join(HERE, "panel", "config.json")
+    if not os.path.exists(cfg_path):
+        return True, "默认仅本机可访问（127.0.0.1）"
+    cfg = json.load(open(cfg_path, encoding="utf-8"))
+    host = (cfg.get("host") or "127.0.0.1").strip()
+    token = (cfg.get("access_token") or "").strip()
+    if host in ("127.0.0.1", "localhost"):
+        return True, "仅本机可访问（安全）"
+    if not token:
+        return False, f"监听 {host}（局域网可访问）但没有 access_token"
+    return True, f"监听 {host}，已启用访问口令"
+
+
 CHECKS = [
     ("Python 版本 ≥ 3.9", c_python, "装 Python 3.9+ 并加入 PATH"),
     ("依赖包", c_packages, "pip install -r requirements.txt"),
-    ("Chrome 浏览器", c_chrome, "装 Chrome；或改 resolve 脚本用 playwright 自带 chromium"),
+    ("Chrome 浏览器", c_chrome, "装 Chrome/Edge；或执行 python -m playwright install chromium"),
     ("学习通桌面端 + 已登录", c_desktop, "装学习通桌面端并登录一次"),
     ("Cookie 解密", c_cookie, "确认桌面端处于登录状态后重试"),
     ("LLM 配置", c_llm, "复制 panel/config.example.json 为 panel/config.json 并填 api_key"),
     ("面板端口", c_port, "改 config.json 里的 port"),
+    ("监听地址安全", c_bind, "局域网模式务必设置 access_token"),
 ]
 
 

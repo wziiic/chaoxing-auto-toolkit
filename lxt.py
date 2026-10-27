@@ -62,6 +62,29 @@ def headers(cookie, referer=None):
     return h
 
 
+def launch_chromium(pw, headless=True):
+    """优先用系统 Chrome → Edge → Playwright 自带 chromium，逐级降级。
+
+    对方机器没装 Chrome 时，只要执行过
+    `python -m playwright install chromium` 也能跑。
+    """
+    args = ["--disable-blink-features=AutomationControlled"]
+    last = None
+    for channel in ("chrome", "msedge", None):
+        try:
+            kwargs = {"headless": headless, "args": args}
+            if channel:
+                kwargs["channel"] = channel
+            return pw.chromium.launch(**kwargs)
+        except Exception as e:                      # noqa: BLE001
+            last = e
+    raise RuntimeError(
+        "找不到可用浏览器。请安装 Chrome/Edge，或执行 "
+        "`python -m playwright install chromium` 后重试。\n"
+        f"最后一次错误: {last}"
+    )
+
+
 def load_cookies_for_browser():
     """从桌面端 cxstudy 的 Chromium 存储里解出 Cookie，转成 Playwright 需要的格式。"""
     import base64
