@@ -329,7 +329,20 @@ class ConfigReq(BaseModel):
 
 @app.get("/")
 def index():
-    return FileResponse(os.path.join(STATIC, "index.html"))
+    # no-store：避免浏览器缓存旧版 index.html，刷新即是最新界面
+    return FileResponse(
+        os.path.join(STATIC, "index.html"),
+        headers={
+            "Cache-Control": "no-store, no-cache, must-revalidate, max-age=0",
+            "Pragma": "no-cache",
+            "Expires": "0",
+        },
+    )
+
+
+@app.get("/favicon.jpg")
+def favicon():
+    return FileResponse(os.path.join(STATIC, "favicon.jpg"))
 
 
 @app.get("/api/config")
