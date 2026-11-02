@@ -28,7 +28,7 @@ def desktop_dir() -> str:
 def create_shortcut(name="学习通面板", target=None, icon=None, overwrite=True) -> str:
     target = target or os.path.join(ROOT, "启动面板.bat")
     if icon is None:
-        icon = os.path.join(ROOT, "assets", "chaoxing.ico")
+        icon = os.path.join(ROOT, "assets", "gear_badge_app_icon.ico")
 
     lnk = os.path.join(desktop_dir(), f"{name}.lnk")
     if os.path.exists(lnk) and not overwrite:

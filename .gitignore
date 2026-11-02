@@ -47,4 +47,6 @@ Thumbs.db
 # 图标 / 预览图（可能是第三方商标资源，且由本机自动生成，不纳入仓库）
 assets/*.ico
 assets/*.png
+# 通用齿轮图标（自绘，非第三方商标），纳入仓库作为快捷方式图标
+!assets/gear_badge_app_icon.ico
 

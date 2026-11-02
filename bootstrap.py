@@ -102,7 +102,7 @@ def ensure_deps(auto_install=True):
 
 def ensure_icon():
     """确保有可用图标；仓库没带图标时，现场画一个通用图标（不涉及第三方商标）。"""
-    ico = os.path.join(HERE, "assets", "chaoxing.ico")
+    ico = os.path.join(HERE, "assets", "gear_badge_app_icon.ico")
     if os.path.exists(ico):
         return ico
     try:
