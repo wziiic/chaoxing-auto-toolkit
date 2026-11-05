@@ -7,7 +7,11 @@
     python tools/make_shortcut.py --name 我的面板 --target 启动面板.bat
 """
 import argparse
+import ctypes
+import filecmp
+import hashlib
 import os
+import shutil
 import subprocess
 import sys
 
@@ -19,6 +23,7 @@ def desktop_dir() -> str:
     """取当前用户桌面（兼容 OneDrive 重定向）。"""
     out = subprocess.run(
         ["powershell", "-NoProfile", "-Command",
+         "[Console]::OutputEncoding = [System.Text.Encoding]::UTF8; "
          "[Environment]::GetFolderPath('Desktop')"],
         capture_output=True, text=True, encoding="utf-8", errors="ignore")
     d = (out.stdout or "").strip()
@@ -33,6 +38,24 @@ def create_shortcut(name="学习通面板", target=None, icon=None, overwrite=Tr
     lnk = os.path.join(desktop_dir(), f"{name}.lnk")
     if os.path.exists(lnk) and not overwrite:
         return lnk
+
+    if not os.path.isfile(target):
+        raise FileNotFoundError(f"找不到启动文件: {target}")
+    if not os.path.isfile(icon):
+        raise FileNotFoundError(f"找不到图标文件: {icon}")
+
+    if os.path.isfile(icon):
+        with open(icon, "rb") as icon_file:
+            icon_hash = hashlib.sha256(icon_file.read()).hexdigest()[:16]
+        icon_dir = os.path.join(
+            os.environ.get("LOCALAPPDATA") or os.path.expanduser("~"),
+            "ChaoxingPanel", "icons")
+        os.makedirs(icon_dir, exist_ok=True)
+        cached_icon = os.path.join(icon_dir, f"gear-{icon_hash}.ico")
+        if (not os.path.isfile(cached_icon)
+                or not filecmp.cmp(icon, cached_icon, shallow=False)):
+            shutil.copy2(icon, cached_icon)
+        icon = cached_icon
 
     env = os.environ.copy()
     env.update({
@@ -57,6 +80,11 @@ def create_shortcut(name="学习通面板", target=None, icon=None, overwrite=Tr
                        errors="ignore", env=env)
     if r.returncode != 0 or not os.path.exists(lnk):
         raise RuntimeError(f"创建快捷方式失败: {(r.stderr or r.stdout or '')[:200]}")
+    notify = ctypes.windll.shell32.SHChangeNotify
+    notify.argtypes = [ctypes.c_long, ctypes.c_uint, ctypes.c_void_p, ctypes.c_void_p]
+    notify.restype = None
+    notify(0x00002000, 0x00001005, ctypes.cast(ctypes.c_wchar_p(lnk), ctypes.c_void_p), None)
+    notify(0x08000000, 0, None, None)
     return lnk
 
 

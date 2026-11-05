@@ -4,7 +4,7 @@
 
 流程:
     1. 检查必需依赖 → 缺了就自动 pip install（失败再换清华源重试）
-    2. 检查桌面快捷方式 → 没有就创建
+    2. 创建/更新桌面快捷方式 → 修复目标路径并统一使用齿轮图标
     3. 检查学习通桌面端 → 没有就提示（不阻塞，只是提醒）
     4. 启动面板（panel/app.py 会自己打开浏览器）
 
@@ -101,44 +101,28 @@ def ensure_deps(auto_install=True):
 
 
 def ensure_icon():
-    """确保有可用图标；仓库没带图标时，现场画一个通用图标（不涉及第三方商标）。"""
+    """使用仓库随附的齿轮图标。"""
     ico = os.path.join(HERE, "assets", "gear_badge_app_icon.ico")
-    if os.path.exists(ico):
+    if os.path.isfile(ico):
         return ico
-    try:
-        from PIL import Image, ImageDraw
-    except Exception:
-        return ""
-
-    os.makedirs(os.path.dirname(ico), exist_ok=True)
-    S = 256
-    img = Image.new("RGBA", (S, S), (0, 0, 0, 0))
-    d = ImageDraw.Draw(img)
-    d.rounded_rectangle([0, 0, S - 1, S - 1], radius=46, fill=(214, 40, 40, 255))
-    # 白色播放三角，寓意"启动"
-    d.polygon([(98, 74), (98, 182), (186, 128)], fill=(255, 255, 255, 255))
-    img.save(ico, format="ICO",
-             sizes=[(256, 256), (128, 128), (64, 64), (48, 48), (32, 32), (16, 16)])
-    _ok(f"已生成默认图标: {ico}")
-    return ico
+    _warn(f"缺少齿轮图标，请恢复文件: {ico}")
+    return ""
 
 
 def ensure_shortcut():
     _step("检查桌面快捷方式")
     try:
-        from tools.make_shortcut import create_shortcut, desktop_dir
+        from tools.make_shortcut import create_shortcut
     except Exception as e:                      # noqa: BLE001
         _warn(f"跳过快捷方式（{e}）")
         return
 
     icon = ensure_icon()
-    lnk = os.path.join(desktop_dir(), "学习通面板.lnk")
-    if os.path.exists(lnk):
-        _ok(f"已存在: {lnk}")
+    if not icon:
         return
     try:
-        lnk = create_shortcut(icon=icon or None)
-        _ok(f"已创建: {lnk}（以后双击它即可）")
+        lnk = create_shortcut(icon=icon, overwrite=True)
+        _ok(f"已更新: {lnk}（统一使用齿轮图标）")
     except Exception as e:                      # noqa: BLE001
         _warn(f"创建失败（不影响使用）: {e}")
 

@@ -346,6 +346,20 @@ fetch → parse → 判答案 → save → verify
 | `state.json` | 表单参数缓存 |
 | `answers-<workId>.json` | 各作业答案 |
 
+## 桌面快捷方式图标修复
+
+面板统一使用仓库中的 `assets/gear_badge_app_icon.ico`，包含 16～256 像素的常用尺寸。
+每次通过 `启动面板.bat` 启动时都会更新已有快捷方式，修复启动路径和图标引用。
+图标会复制到 `%LOCALAPPDATA%\ChaoxingPanel\icons` 下，按内容生成文件名；缓存缺失或内容损坏时会自动重新复制，并通知 Windows 刷新图标。
+
+只修复桌面快捷方式、不启动面板：
+
+```bash
+python tools/make_shortcut.py
+```
+
+图标原文件缺失时，请从仓库恢复 `assets/gear_badge_app_icon.ico` 后重新运行以上命令。
+
 ## 安全提醒
 
 - `cookie.txt` 等于账号钥匙，别外传；用完可在学习通「退出登录」刷新会话
