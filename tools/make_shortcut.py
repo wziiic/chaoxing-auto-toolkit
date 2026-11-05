@@ -55,7 +55,8 @@ def create_shortcut(name="学习通面板", target=None, icon=None, overwrite=Tr
         if (not os.path.isfile(cached_icon)
                 or not filecmp.cmp(icon, cached_icon, shallow=False)):
             shutil.copy2(icon, cached_icon)
-        icon = cached_icon
+        if not (os.stat(cached_icon).st_file_attributes & 0x4000):
+            icon = cached_icon
 
     env = os.environ.copy()
     env.update({

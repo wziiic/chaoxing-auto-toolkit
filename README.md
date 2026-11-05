@@ -351,6 +351,7 @@ fetch → parse → 判答案 → save → verify
 面板统一使用仓库中的 `assets/gear_badge_app_icon.ico`，包含 16～256 像素的常用尺寸。
 每次通过 `启动面板.bat` 启动时都会更新已有快捷方式，修复启动路径和图标引用。
 图标会复制到 `%LOCALAPPDATA%\ChaoxingPanel\icons` 下，按内容生成文件名；缓存缺失或内容损坏时会自动重新复制，并通知 Windows 刷新图标。
+如果缓存文件带有 Windows EFS 加密属性，则直接使用仓库中的原图标，避免桌面进程无法读取缓存而显示白色图标。
 
 只修复桌面快捷方式、不启动面板：
 
