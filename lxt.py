@@ -62,13 +62,13 @@ def headers(cookie, referer=None):
     return h
 
 
-def launch_chromium(pw, headless=True):
+def launch_chromium(pw, headless=True, standard_automation=False):
     """优先用系统 Chrome → Edge → Playwright 自带 chromium，逐级降级。
 
     对方机器没装 Chrome 时，只要执行过
     `python -m playwright install chromium` 也能跑。
     """
-    args = ["--disable-blink-features=AutomationControlled"]
+    args = [] if standard_automation else ["--disable-blink-features=AutomationControlled"]
     last = None
     for channel in ("chrome", "msedge", None):
         try:

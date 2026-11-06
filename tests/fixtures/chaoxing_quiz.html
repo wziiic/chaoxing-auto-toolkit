@@ -1,0 +1,25 @@
+<!doctype html><html lang="zh-CN"><meta charset="utf-8"><body>
+<div class="newTestTitle"><div class="TestTitle_name">章节测验</div><div class="testTit_status">待完成</div></div>
+<form id="form1">
+  <div class="singleQuesId" id="question501" data="501"><div class="TiMu newTiMu" data="0">
+    <div class="Zy_TItle"><span class="newZy_TItle">Select the option meaning two.</span></div>
+    <ul class="Zy_ulTop">
+      <li role="radio" qtype="0" qid="501" onclick="addChoice(this)"><label><span name="answer501" class="num_option choice501" data="B">A</span></label><a class="after">one</a></li>
+      <li role="radio" qtype="0" qid="501" onclick="addChoice(this)"><label><span name="answer501" class="num_option choice501" data="A">B</span></label><a class="after">two</a></li>
+    </ul><input type="hidden" name="answer501" id="answer501" value=""><input type="hidden" name="answertype501" value="0">
+  </div></div>
+  <div class="singleQuesId" id="question502" data="502"><div class="TiMu newTiMu" data="15">
+    <div class="Zy_TItle"><span class="newZy_TItle">Read the passage and answer the questions.</span></div>
+    <div class="readComprehensionQues"><div class="readcomprehension_content">A red apple is on the desk. A green apple is in the box.</div>
+      <div class="readCompreHensionItem"><input type="hidden" name="readCompreHension-childType" value="0"><input type="hidden" name="readCompreHension-childId" value="child-one"><div class="clearfix"><i class="index">1.</i><span>Which apple is on the desk?</span></div><input type="hidden" name="answer502child-one" id="answer502child-one" value=""><ul class="readingItem502" data="502child-one" qtype="0"><li qtype="15" qid="502child-one" onclick="addChoice(this)"><span class="num_option choice502child-one" data="A">A</span><a class="after">red</a></li><li qtype="15" qid="502child-one" onclick="addChoice(this)"><span class="num_option choice502child-one" data="B">B</span><a class="after">green</a></li></ul></div>
+      <div class="readCompreHensionItem"><input type="hidden" name="readCompreHension-childType" value="0"><input type="hidden" name="readCompreHension-childId" value="child-two"><div class="clearfix"><i class="index">2.</i><span>Where is the green apple?</span></div><input type="hidden" name="answer502child-two" id="answer502child-two" value=""><ul class="readingItem502" data="502child-two" qtype="0"><li qtype="15" qid="502child-two" onclick="addChoice(this)"><span class="num_option choice502child-two" data="B">A</span><a class="after">in the box</a></li><li qtype="15" qid="502child-two" onclick="addChoice(this)"><span class="num_option choice502child-two" data="A">B</span><a class="after">on the desk</a></li></ul></div>
+    </div><input type="hidden" name="answer502" id="answer502" value=""><input type="hidden" name="answertype502" value="15">
+  </div></div>
+  <a class="btnBlue" role="button" onclick="document.getElementById('confirmSubWin').style.display='block'">提交</a>
+</form>
+<div id="confirmSubWin" style="display:none" role="alertdialog" aria-label="确认提交"><p id="tipContent">确认提交？</p><a role="button" onclick="fixtureConfirm()">确定</a><a role="button" onclick="this.parentElement.style.display='none'">取消</a></div>
+<div id="verifyCodeWin" style="display:none">请输入验证码</div>
+<script>
+function addChoice(element){const id=element.getAttribute('qid');const selected=element.querySelector('.num_option');const wasSelected=selected.classList.contains('check_answer');document.querySelectorAll('.choice'+id).forEach(span=>{span.classList.remove('check_answer');span.closest('li').setAttribute('aria-checked','false')});if(!wasSelected){selected.classList.add('check_answer');element.setAttribute('aria-checked','true')};document.getElementById('answer'+id).value=wasSelected?'':selected.getAttribute('data')}
+function fixtureConfirm(){window.fixtureSubmits=(window.fixtureSubmits||0)+1;window.fixtureSerialized=Object.fromEntries(Array.from(document.querySelectorAll('input[name^="answer"]')).map(field=>[field.name,field.value]));document.querySelector('.testTit_status').textContent='已完成';document.getElementById('confirmSubWin').style.display='none'}
+</script></body></html>

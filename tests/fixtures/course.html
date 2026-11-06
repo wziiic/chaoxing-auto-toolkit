@@ -1,0 +1,11 @@
+<!doctype html><html lang="zh-CN"><meta charset="utf-8"><title>Course fixture</title><body>
+<div id="coursetree" data-total-chapters="2"><div data-chapter-id="101" title="第一章"><div class="posCatalog_name">第一章</div><div data-chapter-id="102"><div class="posCatalog_name">嵌套章节</div></div></div></div>
+<div data-study-task-id="video-one" data-study-kind="video" data-platform-state="todo" data-title="同章视频一"><video controls width="320" height="180"></video></div>
+<div data-study-task-id="video-two" data-study-kind="video" data-platform-state="todo" data-title="同章视频二"><iframe src="https://mooc2.chaoxing.com/fixture-frame"></iframe></div>
+<div data-study-task-id="quiz-one" data-study-kind="quiz" data-platform-state="todo" data-title="章节练习">
+ <div data-question-id="q-single" data-question-type="single"><div class="stem">请选择数字二</div><label><input type="radio" name="answer-q-single" value="B">二</label><label><input type="radio" name="answer-q-single" value="A">一</label></div>
+ <div data-question-id="q-multi" data-question-type="multiple"><div class="stem">选择所有偶数</div><label><input type="checkbox" value="C">四</label><label><input type="checkbox" value="A">二</label><label><input type="checkbox" value="B">三</label></div>
+ <div data-question-id="q-blank" data-question-type="blank"><div class="stem">请填写两个词</div><input type="text"><textarea></textarea></div>
+ <button onclick="window.fixtureSubmits=(window.fixtureSubmits||0)+1;this.parentElement.setAttribute('data-platform-state','done');this.textContent='已提交';">提交</button>
+</div>
+</body></html>

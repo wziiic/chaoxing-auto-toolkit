@@ -37,6 +37,11 @@
         font-size:16px;flex:0 0 auto;box-shadow:0 2px 6px rgba(47,125,224,.28)}
   header h1{font-size:17px;margin:0;font-weight:600;color:var(--txt);letter-spacing:.01em}
   header h1 small{font-size:12px;color:var(--dim);font-weight:400;margin-left:8px}
+  .page-nav{display:flex;gap:8px;margin-left:20px}
+  .page-nav a{color:var(--txt2);text-decoration:none;padding:6px 14px;border-radius:18px}
+  .page-nav a[aria-current="page"]{background:var(--accent-soft);color:var(--accent)}
+  .page-nav a:focus-visible{outline:none;box-shadow:var(--ring)}
+  @media(max-width:750px){header{flex-wrap:wrap}.page-nav{margin-left:0}}
   .badge{font-size:12px;color:var(--dim)}
 
   main{padding:20px 22px;max-width:1400px;margin:0 auto;position:relative;z-index:1}
@@ -96,47 +101,24 @@
   .dot.ok{background:var(--ok)} .dot.err{background:var(--err)}
   @keyframes pulse{50%{opacity:.3}}
   .nowrap{white-space:nowrap;display:flex;gap:6px;align-items:center}
+
 </style>
+<link rel="stylesheet" href="/study-assets/header.css">
 </head>
 <body>
 <div class="topbar"></div>
 <header>
   <div class="logo">学</div>
-  <h1>学习通面板<small>超星学习通 · 作业自动化</small></h1>
+  <h1>学习通面板<small>超星学习通-看课自动化</small></h1>
+  <nav class="page-nav" aria-label="页面导航"><a href="/" aria-current="page">作业面板</a><a href="/study">课程学习</a></nav>
   <span class="badge" id="statusBar">就绪</span>
   <span style="flex:1"></span>
   <button onclick="refreshWorks()">刷新列表</button>
-  <button onclick="location.reload()">重载页面</button>
+  <button id="reloadPage" onclick="location.reload()">重载页面</button>
+  <button id="openLlmSettings" onclick="openLlmSettings()">LLM 设置</button>
 </header>
 
 <main>
-  <!-- 设置 -->
-  <div class="card">
-    <h2>LLM 设置（自动作答用）</h2>
-    <div class="grid">
-      <div>
-        <label>API Base URL</label>
-        <input id="cfgBase" placeholder="https://api.deepseek.com/v1">
-      </div>
-      <div>
-        <label>模型</label>
-        <input id="cfgModel" placeholder="deepseek-chat">
-      </div>
-      <div>
-        <label>API Key <span id="keyState" class="badge"></span></label>
-        <input id="cfgKey" type="password" placeholder="留空则不修改">
-      </div>
-      <div style="display:flex;align-items:flex-end;gap:10px">
-        <button class="primary" onclick="saveCfg()">保存设置</button>
-        <button onclick="testLLM()">测试连接</button>
-      </div>
-    </div>
-    <div class="hint">
-      兼容 OpenAI 协议的都能用：DeepSeek / 通义 / Kimi / 本地 Ollama 等。
-      默认只暂存不交卷。
-    </div>
-  </div>
-
   <!-- 模型基准测试 -->
   <div class="card">
     <h2>模型基准测试（用已知答案打分，不保存不提交）</h2>
@@ -188,7 +170,37 @@
     <div id="log">等待任务…</div>
   </div>
 </main>
+<dialog id="llmSettings" aria-labelledby="llmSettingsTitle">
+  <div class="card">
+    <div class="llm-heading"><h2 id="llmSettingsTitle">LLM 设置（自动作答用）</h2><button onclick="document.getElementById('llmSettings').close()">关闭</button></div>
+    <div class="grid">
+      <div>
+        <label>API Base URL</label>
+        <input id="cfgBase" placeholder="https://api.deepseek.com/v1">
+      </div>
+      <div>
+        <label>模型</label>
+        <input id="cfgModel" placeholder="deepseek-chat">
+      </div>
+      <div>
+        <label>API Key <span id="keyState" class="badge"></span></label>
+        <input id="cfgKey" type="password" placeholder="留空则不修改">
+      </div>
+      <div style="display:flex;align-items:flex-end;gap:10px">
+        <button id="saveLlmSettings" class="primary" onclick="saveCfg()">保存设置</button>
+        <button id="testLlmSettings" onclick="testLLM()">测试连接</button>
+      </div>
+    </div>
+    <p id="llmNotice" class="notice" role="status"></p>
+    <div class="hint">
+      兼容 OpenAI 协议的都能用：DeepSeek / 通义 / Kimi / 本地 Ollama 等。
+      默认只暂存不交卷。
+    </div>
+  </div>
 
+</dialog>
+
+<script src="/study-assets/llm-settings.js"></script>
 <script>
 let WORKS = [], FILTER = 'todo', CUR_JOB = null, POLL = null;
 
@@ -225,39 +237,6 @@ function log(msg){
   if(el.dataset.init !== '1'){ el.textContent=''; el.dataset.init='1'; }
   el.textContent += msg + '\n';
   el.scrollTop = el.scrollHeight;
-}
-
-/* ---------- 配置 ---------- */
-async function loadCfg(){
-  const c = await api('/api/config');
-  document.getElementById('cfgBase').value = c.llm.base_url || '';
-  document.getElementById('cfgModel').value = c.llm.model || '';
-  document.getElementById('keyState').textContent =
-      c.llm.has_key ? `已配置 ${c.llm.api_key_masked||''}` : '未配置';
-}
-async function saveCfg(){
-  try{
-    await api('/api/config', {
-      method:'POST', headers:{'Content-Type':'application/json'},
-      body: JSON.stringify({
-        llm_base_url: document.getElementById('cfgBase').value,
-        llm_model: document.getElementById('cfgModel').value,
-        llm_api_key: document.getElementById('cfgKey').value
-      })
-    });
-    document.getElementById('cfgKey').value='';
-    log('✅ 设置已保存');
-    loadCfg();
-  }catch(e){ log('❌ 保存失败: '+e.message); }
-}
-async function testLLM(){
-  log('测试 LLM 连接…');
-  try{
-    const r = await fetch('/api/testllm', {method:'POST', headers: authHeaders()});
-    const d = await r.json();
-    if(d.ok) log(`✅ 连接成功  模型=${d.model}  耗时=${d.latency}s`);
-    else     log('❌ '+d.msg);
-  }catch(e){ log('❌ '+e.message); }
 }
 
 /* ---------- 作业列表 ---------- */
@@ -434,7 +413,7 @@ async function runBench(){
 
 /* ---------- 启动 ---------- */
 (function init(){
-  loadCfg();
+  loadCfg().catch(()=>{});
   refreshWorks();
 })();
 </script>

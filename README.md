@@ -1,368 +1,126 @@
-# 学习通作业自动化工具包（抓题 / LLM 作答 / 面板 + API）
+# 学习通辅助面板
 
-把「学习通（超星）作业」这条流程自动化：**列出作业 → 自动获取作业链接 → 解析题目 → 调 LLM 作答 → 暂存 → 核对 → 交卷**，
-并提供一个本地网页面板和 HTTP API，不用每次都开对话。
+基于 Python、FastAPI 和 Playwright 的本地学习通辅助工具，提供 **作业面板** 和 **课程学习** 两个页面。支持复用自己的学习通桌面端登录会话，并通过兼容 OpenAI 协议的模型服务处理可识别的练习题。
 
-> ⚠️ **仅供个人学习辅助**。作业代做的学术诚信后果由使用者自负；请遵守所在学校的规章制度。
-> 本仓库不包含任何账号凭据，使用时凭据只留在本地。
+面板运行在自己的电脑上。课程状态以平台反馈为准，进入章节、滚动到底或播放结束都不会直接当作任务完成。
 
-## 特性
+## 下载
 
-- **自动获取作业链接**：不用手工复制 `dowork` 链接（该链接是一次性会话令牌，手工模式每次都要重取）
-- **桌面端会话复用**：自动从学习通桌面端（Electron）解密 Cookie，无需手填
-- **真实浏览器补会话**：`work/task` 需要完整网页登录态，用 Playwright + 本机 Chrome 跑一遍 SSO 即可补齐
-- **LLM 自动作答**：兼容 OpenAI 协议（DeepSeek / 通义 / Kimi / 本地 Ollama）
-- **图形面板 + REST API**：批量抓题、批量作答、看答案、核对、交卷
-- **默认只暂存不交卷**，交卷需二次确认
-- **一键自举**：首次双击 `启动面板.bat` 就自动装依赖、建桌面快捷方式、启动并打开浏览器
+- **直接下载**：[下载项目 ZIP](https://github.com/wziiic/chaoxing-auto-toolkit/archive/refs/heads/master.zip)，解压到一个固定目录，例如 `D:\学习通面板`。不要在压缩包内直接运行。
+- **使用 Git**：
 
-## 安装（真的只要一步）
-
-```bash
-git clone <this-repo>
+```powershell
+git clone https://github.com/wziiic/chaoxing-auto-toolkit.git
+cd chaoxing-auto-toolkit
 ```
 
-然后**双击 `启动面板.bat`**。它会自动：
+下载的是源码包，需要安装下面的运行环境。
 
-```
-▶ 检查依赖        ← 缺什么就自动 pip install（失败换清华源重试）
-▶ 检查桌面快捷方式  ← 没有就创建桌面「学习通面板」
-▶ 检查学习通桌面端  ← 没登录会提醒
-▶ 启动面板        ← 并自动打开浏览器
-```
+## 安装和启动
 
-首次装依赖约 1～3 分钟。之后再启动，双击桌面图标即可。
+准备 Windows、Python 3.9 或以上版本，以及已安装并登录的学习通 Windows 桌面端。安装 Python 时勾选 **Add python.exe to PATH**。本机使用 Python 3.10 验证。
 
-前置条件：
+建议电脑上安装 Chrome 或 Edge。项目优先启动独立的 Chrome，不可用时尝试 Edge，再尝试 Playwright Chromium；不会接管你日常浏览器的个人配置目录。
 
-1. Windows（用到 DPAPI 解密）
-2. Python 3.9+（装的时候勾 `Add python.exe to PATH`）
-3. Chrome 或 Edge（都没有会自动用 Playwright 自带内核）
-4. 已安装并**登录**学习通桌面端（`%APPDATA%\cxstudy` 会被读取）
+1. 解压或克隆项目后，双击根目录的 **`启动面板.bat`**。
+2. 首次启动会检查并安装 Python 依赖，创建或修复桌面“学习通面板”齿轮图标快捷方式。
+3. 面板启动后，浏览器会打开 [本地面板](http://127.0.0.1:8765/)。启动终端请保持运行，关闭会停止服务。
+4. 点击右上角 **LLM 设置**，填写服务地址、模型名称和自己的 API Key，先保存，再测试连接。两个页面共用这份配置。
 
-> 想手动控制的话也可以：`pip install -r requirements.txt` 后 `python panel/app.py`。
+若没有可用浏览器内核，可在项目目录执行：
 
-## 快速开始（面板）
-
-打开 http://127.0.0.1:8765/ ，在「LLM 设置」里填 API Key（或复制 `panel/config.example.json` 为 `panel/config.json` 再填）。
-
-命令行方式仍可用：
-
-```bash
-python grab_cookie.py    # 从桌面端提取 Cookie（面板会自动做，一般不用手动跑）
-python list_works.py     # 列出全部作业
-python panel/app.py      # 启动面板
+```powershell
+python -m playwright install chromium
 ```
 
-## 分享给别人用
+也可以手动安装和启动：
 
-- **详细步骤（可直接发给对方）**：[`ONBOARDING.md`](ONBOARDING.md)
-- **一句话版**：clone 本项目 → 双击 `启动面板.bat`（自动装依赖 + 建快捷方式 + 开网页）→ 填自己的 LLM API Key → 开始用
-
-## 分享给别人用：对方需要准备什么
-
-### 只需要填一样东西
-
-| 要填的 | 填在哪 | 说明 |
-|---|---|---|
-| **LLM API Key** | 面板「LLM 设置」，或 `panel/config.json` 的 `llm.api_key` | 唯一必填项。用官方 DeepSeek 时模型填 `deepseek-chat` |
-
-### 不需要填的（会自动获取）
-
-| 项目 | 为什么不用填 |
-|---|---|
-| Cookie / 登录凭据 | `grab_cookie.py` 从**对方自己电脑上**的桌面端解密 |
-| 课程 ID、班级 ID、作业 ID | `list_works.py` 自动列出 |
-| 一次性 `dowork` 链接 | `batch_resolve.py` 用浏览器自动生成 |
-| 端口 | 默认 8765，冲突才改 |
-
-### 对方必须满足的环境前提
-
-1. **Windows**（脚本依赖 DPAPI 与 Chrome 路径）
-2. **Python 3.9+** 且在 PATH
-3. **Chrome 已安装**
-4. **学习通桌面端已安装并登录过至少一次** ← 最关键，Cookie 从这里来
-5. 能联网访问 chaoxing.com 与所选 LLM 服务
-
-### 对方上手三步
-
-```bash
-pip install -r requirements.txt
-python doctor.py          # 自检：哪项不满足会直接提示怎么修
-# 然后双击 启动面板.bat
+```powershell
+python -m pip install -r requirements.txt
+python -B panel/app.py
 ```
 
-`doctor.py` 会逐项检查 Python / 依赖 / Chrome / 桌面端 / Cookie 解密 / LLM 配置 / 端口，并给出修复建议。
+桌面快捷方式使用仓库附带的齿轮图标。移动项目后，请从新目录再次运行 `启动面板.bat`，更新快捷方式目标及图标路径。
 
-### 常见不适配情况
+## 作业面板
 
-| 现象 | 原因 | 处理 |
-|---|---|---|
-| 提示找不到 `%APPDATA%\cxstudy` | 桌面端是别的发行版，或从未登录 | 登录一次；若目录名不同，改 `lxt.py` 里 `load_cookies_for_browser` 的路径 |
-| Cookie 解出 0 条 / 缺 `_uid` | 桌面端处于未登录状态 | 重新登录桌面端再跑 |
-| `work/task` 被弹登录页 | 网页端会话未建立 | 属正常，走 `batch_resolve.py`（浏览器会自动补 SSO） |
-| 提示 `--remote-debugging-port: bad option` | 桌面端有参数校验 | 正常现象，本方案不依赖 CDP，无需处理 |
-| 自动作答报模型不存在 | 用了官方 API 却填了内部模型名 | 改为 `deepseek-chat` 或 `deepseek-reasoner` |
+入口：[http://127.0.0.1:8765/](http://127.0.0.1:8765/)。
 
-> 每人必须用**自己的账号**在自己电脑上跑，不能共用别人的 `cookie.txt`——那是账号钥匙。
+- 读取作业列表，筛选和选择待处理作业。
+- 获取作业页面并提取题目，支持批量抓题与模型作答。
+- 查看答案、暂存、核对结果及按页面操作提交。
+- 使用已知答案进行模型基准测试。
+- 右上角提供刷新列表、重载页面和 LLM 设置。
 
-## 实测表现
+作业页默认配置为暂存，不自动交卷；请查看答案及页面反馈后决定是否提交。
 
-以「党史章节测试 50 题」（已确认满分 100）为基准做的模型对比：
+## 课程学习
 
-| 模型 | 准确率 | 耗时 | 单选 | 多选 | 判断 |
-|---|---|---|---|---|---|
-| `deepseek-chat` | 98% (49/50) | 1.8s | 28/28 | 11/12 | 10/10 |
-| `deepseek-reasoner` | 98% (49/50) | 24.5s | 28/28 | 11/12 | 10/10 |
+在顶部点击 **课程学习**，或打开 [http://127.0.0.1:8765/study](http://127.0.0.1:8765/study)。
 
-结论：**`deepseek-chat` 够用且快**，`reasoner` 没有准确率收益。多选题是唯一薄弱环节，建议交卷前用「看答案」人工扫一眼。
+### 使用步骤
 
-面板自带「模型基准测试」，可以拿任意已作答的作业当基准给新模型打分。
+1. 点击 **读取课程**，从课程选择窗口查看未完成、状态未知或全部课程；选中后自动填入链接。也可以粘贴自己的课程学习页链接，在选课窗口点击“读取输入的链接”。
+2. 读取过程使用后台无窗口浏览器。课程选择窗口固定大小，列表内部滚动；进度条展示读取阶段、已发现任务及加载提示。
+3. 选择课程后自动滚动到 **学习设置**。先确认自动填写、自动提交、播放速度以及遇到人工任务时暂停或继续的策略，再点击 **开始学习** 或 **开始选中任务**。读取课程本身不会开始执行。
+4. 在任务表、统计区和运行日志查看具体任务的进度、平台状态及失败原因。可随时暂停、继续或停止。
 
-## 目录结构
+### 基本功能
 
-```
-lxt.py                 主程序：fetch / parse / loadhtml / save / submit / verify
-bootstrap.py           一键自举：装依赖 + 建快捷方式 + 启动
-doctor.py              环境自检（排错用）
-grab_cookie.py         从桌面端解密 Cookie（DPAPI + AES-GCM）
-list_works.py          作业清单
-batch_resolve.py       批量取作业页 + 解析（Playwright + Browser）
-resolve_work.py        单份取作业页
-show_work.py           打印题目
-check_all.py           批量核对已保存答案
-panel/app.py           面板后端（FastAPI）
-panel/static/index.html 面板前端
-panel/config.example.json 配置模板
-tools/make_shortcut.py 创建桌面快捷方式
-tools/img2ico.py       图片转多尺寸 .ico（换图标用）
-启动面板.bat            双击这个（自举启动）
-```
+- **按任务点统计**：支持多层章节和同章节多个任务，不把进入章节视为完成。
+- **视频、音频**：定位屏幕下方和嵌套 iframe 内的播放器，正常播放并跟踪进度；平台不支持所选倍速时回退 1×。播放结束后重新核验完成状态。
+- **阅读、课件**：滚动任务内部的阅读区域和嵌套 iframe 到底部；延迟追加的内容会再次检查。页面有明确计时或翻页要求时按要求处理，再核验平台状态并继续后续任务。
+- **普通练习**：提取题目、调用共用模型配置，校验结果、填写后回读；启用自动提交后处理可识别的确认弹窗，并检查页面反馈和平台状态。
+- **讨论**：可编辑正文、保存草稿、填写到原页面或明确选择发布；也可对单个任务开启队列自动发布。未找到可用入口或编辑器时提供人工处理原因。
+- **记录保留**：保留上次课程链接、目录、设置、选择及执行位置。默认沿用缓存，只有手动读取或刷新时重新扫描；开始执行时核验目标任务，减少重复操作。
+- **运行控制**：串行队列、有限重试、暂停取消旧响应、提交防重和同课程实例锁。支持导出脱敏记录。
+- **统一设置**：课程页右上角同样有重载页面和 LLM 设置，无需返回作业页修改模型。
 
-## 安全说明
+点击“开始学习”或“打开课程窗口”才会显示课程浏览器；普通读取与刷新使用无窗口模式。它与显示本地面板的浏览器窗口相互独立。
 
-以下文件**已被 `.gitignore` 排除**，请勿手动提交：
+## 当前限制
 
-- `cookie.txt`：等于你的学习通登录凭据
-- `panel/config.json`：含 LLM API Key
-- `works/`、`answers-*.json`、`worklist.json`、`questions.json`：含你的课程与作业内容
+- 需要自己的有效登录会话。登录失效、验证码、身份验证、访问限制或多设备冲突会暂停，需在原页面处理。
+- 自动答题适用于已适配的普通练习；正式考试保留人工处理。限次或不可重做练习需要查看限制并单独授权。
+- 图片题、特殊控件、不可访问的 iframe 和未支持的任务类型可能需要人工处理。模型输出不保证正确。
+- 滚动到底和播放结束不等于平台完成；缺少明确平台反馈时保留待核验状态。不会伪造学习时长、心跳或完成记录。
+- 讨论的真实页面兼容性取决于平台是否提供可编辑入口。当前截图对应页面只显示预览，真实发布尚未验证；不会把模拟测试当作真实发布成功。
 
-如果怀疑泄露：学习通「退出登录」刷新会话；LLM Key 去平台后台吊销重发。
+更详细的队列行为、验证记录和接入限制见 [课程学习说明](docs/课程学习.md)。
 
----
+## 常见问题
 
-## 使用方法（详细）
+- **找不到 Python**：重新安装 Python 并勾选加入 PATH，重开终端后运行启动脚本。
+- **未检测到学习通登录状态**：打开学习通 Windows 桌面端登录自己的账号，再重新读取。浏览器里已登录不代表桌面端已有可复用会话。
+- **模型连接失败**：在 LLM 设置中检查地址、模型名称和密钥；修改后先保存再测试。
+- **修改代码后仍是旧界面**：点击重载页面。后端代码更新还需要停止并重新启动服务；学习中应先暂停或停止队列。
+- **桌面图标丢失**：确认项目没有被移动或删除，再运行 `启动面板.bat` 修复快捷方式。
+- **环境排错**：在项目目录执行 `python doctor.py`。只检查依赖、不启动面板可运行 `python bootstrap.py --check --no-install`。
 
-这套流程已经跑通：《智科与人工智能学科导论》40题、心理健康3份、生成式AI 9章、近现代史2份、党史章节测试。
+## 本地数据与更新
 
-## 零、图形面板 + API（日常用这个）
+`panel/config.json` 保存模型配置，`panel/study-data/` 保存课程记录及本机加密的课程链接；Cookie、作业页面与答案也只应保留在自己的电脑上。这些运行数据已加入 `.gitignore`，不要手动上传。
 
-双击 `启动面板.bat`，或手动：
+Git 安装的用户可在停止服务后运行 `git pull --ff-only` 更新代码，再重新启动。ZIP 用户可下载新版解压到新目录，并在备份后将自己的 `panel/config.json`、`panel/study-data/` 和需要的本地作业记录迁移过去。加密课程链接仅供原 Windows 用户使用，不适合随项目分享。
 
-```bash
-python panel/app.py
-```
+## 项目结构与验证
 
-浏览器打开 **http://127.0.0.1:8765/**
+- `panel/app.py`：FastAPI 路由、原有模型调用和后台作业接口。
+- `panel/static/`：作业页、课程页、共用页头和 LLM 设置组件。
+- `panel/study_service.py`：课程队列、状态机、模型答题和提交保护。
+- `panel/study_browser.py`、`study_directory.py`、`study_dom.js`：浏览器会话、课程目录、任务识别及页面操作。
+- `panel/study_core.py`、`study_questions.js`、`study_discussion.py`：持久化与锁、题目适配及讨论流程。
+- `lxt.py`、`list_works.py`、`batch_resolve.py`：原有作业核心功能。
+- `bootstrap.py`、`tools/make_shortcut.py`：启动、自检与快捷方式维护。
+- `tests/`：合成页面、模拟模型及队列测试。
 
-面板能做的事：列作业 → 勾选 → 批量抓题 → 批量自动作答（调 LLM）→ 看答案 → 核对 → 交卷。
+测试命令：
 
-首次使用要在面板顶部「LLM 设置」里填 **API Key**（兼容 OpenAI 协议：DeepSeek / 通义 / Kimi / 本地 Ollama 都行）。
-不填 Key 就只能抓题、看题、手动保存，不能自动作答。
-
-### HTTP API
-
-交互式文档：**http://127.0.0.1:8765/docs**
-
-| 方法 | 路径 | 说明 |
-|---|---|---|
-| GET | `/api/works?refresh=true` | 作业清单（含状态/是否已抓题/是否已作答） |
-| GET | `/api/questions/{workId}` | 题目结构 |
-| GET | `/api/answers/{workId}` | 当前答案 |
-| GET | `/api/config` | 读取配置（Key 打码） |
-| POST | `/api/config` | 改配置：`{"llm_base_url","llm_model","llm_api_key"}` |
-| POST | `/api/jobs` | 提交异步任务，返回 `jobId` |
-| GET | `/api/jobs/{jobId}` | 查进度与日志 |
-
-`POST /api/jobs` 的 `action` 取值：
-
-```json
-{"action":"list"}                                  // 刷新列表
-{"action":"resolve","workIds":["55366359"]}        // 只抓题
-{"action":"auto","workIds":["55366359"],"submit":false}  // 抓题+LLM作答+暂存
-{"action":"auto","workIds":["55366359"],"submit":true}   // 作答并交卷
-{"action":"save","workIds":["55366359"],"answers":{"qid":"A"}}  // 自定义答案保存
-{"action":"verify","workIds":["55366359"]}         // 回读核对
-{"action":"submit","workIds":["55366359"]}         // 交卷
+```powershell
+python -B -m unittest discover -s tests -p test_study.py
+python -B tests/check_study_ui.py
 ```
 
-curl 例子：
+测试主要使用合成页面和模拟模型，不连接真实模型或向真实课程提交。已有真实课件滚到底、视频短时播放的验证记录；这不代表所有课程、完整观看、真实交卷或讨论发布均已验证。
 
-```bash
-curl -X POST http://127.0.0.1:8765/api/jobs -H "Content-Type: application/json" \
-     -d "{\"action\":\"auto\",\"workIds\":[\"56511284\"]}"
-```
-
-## 一、脚本模式（无人值守 / 排错用）
-
-```
-list_works.py       列出所有作业（标题/课程/状态/入口链接）
-      ↓
-resolve_work.py     用真实 Chrome 打开入口，自动完成 SSO 跳转，拿到有效 dowork 页
-      ↓              同时导出浏览器会话 Cookie → cookie.txt
-parse               解析题目（题干/选项/真实答案键）
-      ↓
-（我判答案，写成 answers-<workId>.json）
-      ↓
-save                暂存答案（不交卷）
-verify              回读核对
-```
-
-用法：
-
-```bash
-cd <workspace>
-# 1) 列出所有作业，拿 url
-python list_works.py
-
-# 2) 批量取某一批作业的题目（一次浏览器会话搞定多份）
-python batch_resolve.py --ids 55366359,55366922,56511284
-python batch_resolve.py --all-undone
-
-# 3) 单份也可
-python resolve_work.py --task "<url>"
-
-# 4) 看某份作业的题目
-python show_work.py <workId>
-
-# 5) 写答案 → 暂存 → 核对（逐份 state 独立）
-python lxt.py save   --state works/<workId>/state.json --answers answers-<workId>.json
-python lxt.py verify --state works/<workId>/state.json
-
-# 6) 一次性核对全部
-python check_all.py
-```
-
-`batch_resolve.py` 会把每份作业拆到 `works/<workId>/`（page.html / state.json / questions.json），
-互不干扰，可以逐份作答、逐份保存。
-
-## 二、为什么必须用浏览器
-
-`work/task` 与 `dowork` 需要**网页端登录会话**，不是单纯 Cookie 能凑齐的：
-
-- 桌面端的 Cookie 只够访问 `all-task` 列表和课程门户
-- 直接请求 `work/task` 会被弹到 `passport2` 登录页（实测 4 种 Cookie 组合均失败）
-- 只有真实浏览器执行 JS 才会完成 SSO 自动登录，落回作业页
-
-所以 `resolve_work.py` 走的是「Playwright + 本机 Chrome + 注入桌面端 Cookie」，
-让浏览器自己把会话补齐，然后把**新会话 Cookie 导出**给后续请求复用。
-
-### 桌面端 Cookie 从哪来
-
-`grab_cookie.py` / `resolve_work.py` 解析 Electron 的 Chromium 存储：
-
-```
-%APPDATA%\cxstudy\Local State        -> os_crypt.encrypted_key
-    ↓ DPAPI(CryptUnprotectData)
-AES-256 主密钥
-    ↓
-%APPDATA%\cxstudy\Network\Cookies    -> encrypted_value (v10/v11)
-    ↓ AES-256-GCM 解密
-Cookie 明文
-```
-
-顺带记录：桌面端的 `cxstudy.exe` 有自定义参数校验，**无法用 `--remote-debugging-port` 开 CDP**，
-所以不要尝试接管它的 webview，直接用 Playwright 另开 Chrome 更省事。
-
-## 三、手工模式（备用，链接失效时）
-
-```
-你从浏览器复制一条当前有效的 dowork 链接
-   ↓
-fetch → parse → 判答案 → save → verify
-```
-
-`dowork` 链接的 `answerId/enc` 是一次性会话令牌，用过就失效，所以手工模式每次都要新链接。
-
-## 关键机制（三个坑）
-
-### 坑1：选项是乱序的
-
-```html
-<!-- aria-label 前缀 B = 真实键；data="B" = 真实键；屏幕上显示的是 A -->
-<div aria-label="B 遗传算法选择" qid="215411695" qtype="0">
-    <span data="B">A</span>
-    <div class="answer_p">遗传算法</div>
-</div>
-```
-
-- `data` = **真实答案键**（提交用这个）
-- span 文字 = 学生屏幕上的 **display 字母**（乱序后）
-
-`parse` 会把两者都打出来（`data=X 屏幕=Y`），别搞混。
-
-### 坑2：判断题的 data 不是字母
-
-判断题 `data="true"` / `data="false"`，答案就写 `true` / `false`。
-
-### 坑3：DOM 序列化会改属性
-
-浏览器拿到的 HTML（`page.content()`）与服务器原始 HTML 不同：
-
-- `typeName` → `typename`（小写）
-- `aria-label='...'`（单引号）→ `aria-label="..."`（双引号）
-
-解析器对两者都做了兼容，改解析逻辑时注意。
-
-## 暂存 ≠ 交卷
-
-- `save` → `pyFlag=1`，可反复覆盖，**不交卷**
-- `submit` → `pyFlag` 为空 + `/work/validate`，**会锁定**
-
-默认永远先 `save`，让用户复核后手动提交。
-
-## 答案文件格式
-
-```json
-{
-  "406140648": "ABCD",     // 多选：把真实键连起来
-  "406140643": "D",        // 单选：一个真实键
-  "406140654": "true",     // 判断题：true / false
-  "406140650": ""          // 留空 = 不作答
-}
-```
-
-## 文件说明
-
-| 文件 | 作用 |
-|---|---|
-| `lxt.py` | 主程序（fetch/parse/loadhtml/save/submit/verify） |
-| `list_works.py` | 列出全部作业及入口链接 |
-| `resolve_work.py` | 浏览器自动取作业页 + 导出会话 |
-| `grab_cookie.py` | 从桌面端提取 Cookie |
-| `dump_cookies.py` | 按域名打印桌面端全部 Cookie（排查用） |
-| `cookie.txt` | 当前会话 Cookie |
-| `worklist.json` | 作业清单缓存 |
-| `state.json` | 表单参数缓存 |
-| `answers-<workId>.json` | 各作业答案 |
-
-## 桌面快捷方式图标修复
-
-面板统一使用仓库中的 `assets/gear_badge_app_icon.ico`，包含 16～256 像素的常用尺寸。
-每次通过 `启动面板.bat` 启动时都会更新已有快捷方式，修复启动路径和图标引用。
-图标会复制到 `%LOCALAPPDATA%\ChaoxingPanel\icons` 下，按内容生成文件名；缓存缺失或内容损坏时会自动重新复制，并通知 Windows 刷新图标。
-如果缓存文件带有 Windows EFS 加密属性，则直接使用仓库中的原图标，避免桌面进程无法读取缓存而显示白色图标。
-
-只修复桌面快捷方式、不启动面板：
-
-```bash
-python tools/make_shortcut.py
-```
-
-图标原文件缺失时，请从仓库恢复 `assets/gear_badge_app_icon.ico` 后重新运行以上命令。
-
-## 安全提醒
-
-- `cookie.txt` 等于账号钥匙，别外传；用完可在学习通「退出登录」刷新会话
-- 作业/测验代做属学术诚信范畴，最终是否提交由你决定
-- 建议：**我暂存 → 你浏览器逐题复核 → 你自己点提交**
+后端启动后可访问 [本地 API 文档](http://127.0.0.1:8765/docs)。

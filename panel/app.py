@@ -35,12 +35,14 @@ import requests
 from fastapi import FastAPI, HTTPException
 from fastapi.responses import FileResponse, JSONResponse
 from pydantic import BaseModel
+from pydantic import Field
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.dirname(HERE)          # lxt-auto/
 sys.path.insert(0, ROOT)
 
 import lxt  # noqa: E402  复用 Cookie 解密 / 表单提取 / 题目解析
+sys.path.insert(0, HERE)
 
 PY = sys.executable
 CONFIG_PATH = os.path.join(HERE, "config.json")
@@ -65,6 +67,8 @@ DEFAULT_CONFIG = {
 }
 
 app = FastAPI(title="学习通作业面板", version="1.0")
+STUDY_MANAGER = None
+STUDY_MANAGER_LOCK = threading.Lock()
 
 
 @app.middleware("http")
@@ -220,6 +224,16 @@ def call_llm(prompt: str, cfg: dict) -> Dict[str, str]:
     return json.loads(m.group(0))
 
 
+def get_study_manager():
+    global STUDY_MANAGER
+    with STUDY_MANAGER_LOCK:
+        if STUDY_MANAGER is None:
+            from study_service import StudyManager
+            STUDY_MANAGER = StudyManager(os.path.join(HERE, "study-data"), load_config, call_llm,
+                                         (new_job, job_log, job_done))
+        return STUDY_MANAGER
+
+
 def answer_work(work_id: str, cfg: dict, save: bool = True,
                 submit: bool = False, log=None) -> Dict[str, Any]:
     log = log or (lambda s: None)
@@ -343,6 +357,89 @@ def index():
 @app.get("/favicon.jpg")
 def favicon():
     return FileResponse(os.path.join(STATIC, "favicon.jpg"))
+
+
+@app.get("/study")
+def study_page():
+    return FileResponse(os.path.join(STATIC, "study.html"), headers={"Cache-Control": "no-store"})
+
+
+@app.get("/study-assets/{name}")
+def study_asset(name: str):
+    if name not in ("study.js", "study.css", "header.css", "llm-settings.js"):
+        raise HTTPException(404)
+    return FileResponse(os.path.join(STATIC, name), headers={"Cache-Control": "no-store"})
+
+
+class StudyLoadReq(BaseModel):
+    url: str = Field(min_length=1, max_length=6000)
+
+
+class StudyControlReq(BaseModel):
+    action: str
+    task_ids: List[str] = []
+    auto_fill: bool = False
+    auto_submit: bool = False
+    rate: float = Field(default=1, ge=0.5, le=2)
+    manual_policy: str = "pause"
+    approved_task_ids: List[str] = []
+    task_id: Optional[str] = None
+    acknowledge_unsubmitted: bool = False
+    discussion_text: str = Field(default="", max_length=6000)
+    publish_discussion: bool = False
+    auto_discussion: bool = False
+
+
+@app.get("/api/study")
+def study_state():
+    return JSONResponse(get_study_manager().snapshot(), headers={"Cache-Control": "no-store"})
+
+
+@app.get("/api/study/courses")
+def study_courses():
+    return JSONResponse(get_study_manager().directory_snapshot(), headers={"Cache-Control": "no-store"})
+
+
+@app.post("/api/study/courses")
+def study_courses_refresh():
+    from study_core import StudyError
+    manager = get_study_manager()
+    try:
+        manager.command("discover")
+        return JSONResponse(manager.directory_snapshot(), headers={"Cache-Control": "no-store"})
+    except StudyError as error:
+        raise HTTPException(409, str(error)) from None
+
+
+@app.post("/api/study/load")
+def study_load(req: StudyLoadReq):
+    from study_core import StudyError
+    try:
+        return get_study_manager().command("load", {"url": req.url})
+    except StudyError as error:
+        raise HTTPException(400, str(error)) from None
+
+
+@app.post("/api/study/control")
+def study_control(req: StudyControlReq):
+    from study_core import StudyError
+    try:
+        payload = req.model_dump() if hasattr(req, "model_dump") else req.dict()
+        return get_study_manager().command(req.action, payload)
+    except StudyError as error:
+        raise HTTPException(409, str(error)) from None
+
+
+@app.get("/api/study/export")
+def study_export():
+    from study_core import redacted_export
+    return JSONResponse(redacted_export(get_study_manager().snapshot()), headers={"Content-Disposition": "attachment; filename=course-state.json"})
+
+
+@app.on_event("shutdown")
+def close_study():
+    if STUDY_MANAGER is not None:
+        STUDY_MANAGER.close()
 
 
 @app.get("/api/config")

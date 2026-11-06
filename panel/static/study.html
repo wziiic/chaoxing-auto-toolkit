@@ -1,0 +1,97 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>课程学习 · 学习通面板</title>
+  <link rel="icon" type="image/jpeg" href="/favicon.jpg">
+  <link rel="stylesheet" href="/study-assets/study.css">
+  <link rel="stylesheet" href="/study-assets/header.css">
+  <script src="/study-assets/study.js" defer></script>
+</head>
+<body>
+  <div class="topbar"></div>
+  <header><div class="logo">学</div><h1>学习通面板<small>超星学习通-看课自动化</small></h1><nav aria-label="页面导航"><a href="/" id="worksLink">作业面板</a><a href="/study" aria-current="page">课程学习</a></nav><span id="connection" role="status">连接中…</span><button id="reloadPage" onclick="location.reload()">重载页面</button><button id="openLlmSettings" onclick="openLlmSettings()">LLM 设置</button></header>
+  <main>
+    <section class="card">
+      <h2>课程与会话</h2>
+      <label for="courseUrl">课程学习页链接</label>
+      <div class="row"><input id="courseUrl" type="url" autocomplete="off" spellcheck="false" placeholder="https://mooc1.chaoxing.com/mycourse/studentstudy?…"><button id="load" class="primary">读取课程</button><button id="refresh">刷新任务状态</button><button id="open">打开课程窗口</button></div>
+      <p class="hint">点击“读取课程”选择未完成课程，读取后自动滚动到学习设置；设置完成后点击“开始学习”。也可手动粘贴链接。登录失效时在课程窗口登录后刷新。</p>
+      <p id="message" class="notice" role="status">请输入课程链接。历史记录恢复后须重新读取平台状态。</p>
+
+    </section>
+    <section class="card" id="studySettings" tabindex="-1" aria-label="学习设置">
+      <div class="section-heading"><h2>学习设置</h2><span id="queueState" class="pill">未读取</span></div>
+      <p id="setupNote" class="notice" role="status">先读取课程，再调整下方设置；点击“开始学习”后才执行未完成任务。</p>
+      <div id="settingsLoader" class="liquid-status" hidden>
+        <span class="liquid-orb" aria-hidden="true"></span><div class="liquid-main"><div class="liquid-label"><span id="settingsLabel">正在读取课程</span><strong id="settingsPercent"></strong></div><div id="settingsBar" class="liquid-track" role="progressbar" aria-label="课程读取进度" aria-valuemin="0" aria-valuemax="100"><span class="liquid-fill"></span></div><small id="settingsDetail"></small><small id="settingsTip" class="cat-tip" hidden></small></div>
+      </div>
+      <div class="settings">
+        <label><input id="autoFill" type="checkbox"> 自动填写练习题</label>
+        <label><input id="autoSubmit" type="checkbox"> 自动提交练习题</label>
+        <label>播放速度 <select id="rate"><option value="1">1× 正常速度</option><option value="0.5">0.5×</option><option value="1.25">1.25×</option><option value="1.5">1.5×</option><option value="2">2×</option></select></label>
+        <label>遇到需人工处理 <select id="manualPolicy"><option value="pause">暂停队列</option><option value="continue">继续其他可执行任务</option></select></label>
+      </div>
+      <p class="hint">题目调用作业面板已有模型配置。开启自动提交后，普通练习不再逐题询问；正式考试仅手动处理。平台未提供所选倍速时自动使用 1×。</p>
+      <div class="row controls"><button id="all" class="primary">开始学习</button><button id="selected">开始选中任务</button><button id="pause">暂停</button><button id="resume">继续上次队列</button><button id="stop" class="danger">停止</button><button id="retry">重试失败 / 核验任务</button><button id="export">导出脱敏记录</button></div>
+      <label class="approval"><input id="allowRestricted" type="checkbox"> 我已查看原页面限制，授权当前选中的限次练习（不适用于正式考试）</label>
+      <div class="metrics"><div><span>已发现任务点</span><strong id="discovered">0</strong></div><div><span>已核验完成</span><strong id="verified">0</strong></div><div><span>失败</span><strong id="failed">0</strong></div><div><span>需人工处理</span><strong id="manual">0</strong></div><div><span>等待核验</span><strong id="waiting_verification">0</strong></div></div>
+      <div class="current"><span id="currentTask">当前没有执行任务</span><progress id="progress" value="0" max="1"></progress><span id="progressText">—</span></div>
+    </section>
+    <section class="card">
+      <div class="section-heading"><h2>章节与具体任务点</h2><label><input id="selectAll" type="checkbox"> 选择全部已发现任务</label></div>
+      <p id="catalogNote" class="notice">未确认目录完整；不会把进入章节视为任务完成。</p>
+      <div class="table-scroll"><table><thead><tr><th>选择</th><th>章节 / 任务</th><th>类型</th><th>平台状态</th><th>执行状态</th><th>提交阶段</th><th>原因与原页面</th></tr></thead><tbody id="tasks"><tr><td colspan="7">尚未读取课程</td></tr></tbody></table></div>
+    </section>
+    <section class="card"><div class="section-heading"><h2>运行日志</h2><span id="modelInfo" class="hint"></span></div><pre id="log" aria-live="polite">等待任务…</pre></section>
+  </main>
+  <dialog id="coursePicker" aria-labelledby="coursePickerTitle">
+    <div class="section-heading"><h2 id="coursePickerTitle">选择课程</h2><button id="closePicker" aria-label="关闭课程选择">关闭</button></div>
+    <div class="row picker-filters"><input id="courseSearch" type="search" placeholder="搜索课程名称" aria-label="搜索课程名称"><select id="courseFilter" aria-label="筛选课程状态"><option value="todo">未完成课程</option><option value="unknown">状态未知</option><option value="all">全部课程</option></select><button id="reloadCourses">刷新课程列表</button></div>
+    <p id="courseDirectoryNote" class="notice" role="status">正在读取账号课程…</p>
+    <div id="directoryLoader" class="liquid-status" hidden><span class="liquid-orb" aria-hidden="true"></span><div class="liquid-main"><div class="liquid-label"><span id="directoryLabel">核对账号课程</span><strong id="directoryPercent"></strong></div><div id="directoryBar" class="liquid-track" role="progressbar" aria-label="课程列表读取进度" aria-valuemin="0" aria-valuemax="100"><span class="liquid-fill"></span></div><small id="directoryDetail"></small><small id="directoryTip" class="cat-tip" hidden></small></div></div>
+    <div id="courseChoices" class="course-choices" aria-label="账号课程列表"></div>
+    <div class="picker-footer"><p class="hint">选择后读取任务并前往设置；点击“开始学习”才执行。状态未知的课程不会被当作已完成。</p><button id="loadTypedUrl">读取输入的链接</button></div>
+  </dialog>
+  <dialog id="discussionEditor" aria-labelledby="discussionTitle">
+    <div class="section-heading"><h2 id="discussionTitle">编辑讨论</h2><button id="closeDiscussion">关闭</button></div>
+    <p id="discussionPrompt" class="notice"></p>
+    <label for="discussionText">讨论正文</label><textarea id="discussionText" rows="8" maxlength="6000" placeholder="请结合当前讨论要求填写正文"></textarea>
+    <label class="approval"><input id="discussionAuto" type="checkbox"> 队列执行到本任务时，自动发布上方正文</label>
+    <p class="hint">保存不发布；“填写到原页面”仅编辑。“填写并发布”会按你的操作发出正文，发布后仍单独核验任务完成状态。</p>
+    <p id="discussionNotice" class="notice" role="status"></p>
+    <div class="row"><button id="saveDiscussion">保存正文与队列设置</button><button id="fillDiscussion">填写到原页面</button><button id="publishDiscussion" class="primary">填写并发布</button></div>
+  </dialog>
+<dialog id="llmSettings" aria-labelledby="llmSettingsTitle">
+  <div class="card">
+    <div class="llm-heading"><h2 id="llmSettingsTitle">LLM 设置（自动作答用）</h2><button onclick="document.getElementById('llmSettings').close()">关闭</button></div>
+    <div class="grid">
+      <div>
+        <label>API Base URL</label>
+        <input id="cfgBase" placeholder="https://api.deepseek.com/v1">
+      </div>
+      <div>
+        <label>模型</label>
+        <input id="cfgModel" placeholder="deepseek-chat">
+      </div>
+      <div>
+        <label>API Key <span id="keyState" class="badge"></span></label>
+        <input id="cfgKey" type="password" placeholder="留空则不修改">
+      </div>
+      <div style="display:flex;align-items:flex-end;gap:10px">
+        <button id="saveLlmSettings" class="primary" onclick="saveCfg()">保存设置</button>
+        <button id="testLlmSettings" onclick="testLLM()">测试连接</button>
+      </div>
+    </div>
+    <p id="llmNotice" class="notice" role="status"></p>
+    <div class="hint">
+      兼容 OpenAI 协议的都能用：DeepSeek / 通义 / Kimi / 本地 Ollama 等。
+      默认只暂存不交卷。
+    </div>
+  </div>
+
+</dialog>
+  <script src="/study-assets/llm-settings.js"></script>
+</body>
+</html>
