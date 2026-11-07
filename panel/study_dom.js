@@ -34,6 +34,7 @@
     if (/audio|音频/.test(valueText)) return 'audio';
     if (/work|quiz|test|测验|练习/.test(valueText)) return 'quiz';
     if (/document|ppt|pdf|课件|文档/.test(valueText)) return 'document';
+    if (/^(?:insertimage|image)$/.test(valueText)) return 'image';
     if (/read|text|阅读/.test(valueText)) return 'text';
     if (/insertbbs|discuss|discussion|讨论/.test(valueText)) return 'discussion';
     return 'unknown';
@@ -62,6 +63,20 @@
     const task = {local_id: canonical, kind, title: element.getAttribute('data-title') || data.name || data.title || iframe?.title || element.getAttribute('title') || kind, platform, is_task_point:![false,'false',0,'0'].includes(data.isJob), requirement, reason: element.getAttribute('data-reason') || '', locator: {dom: String(identity)}};
     if (!existing) taskData.push(task);
     else { if (platform !== 'unknown') existing.platform = platform; existing.locator = task.locator; existing.non_task_candidate=['video','audio','document'].includes(existing.kind)&&!existing.declared_task_point&&![true,'true',1,'1'].includes(data.isJob)&&!element.matches('.ans-job-finished')&&!element.querySelector('.ans-job-icon'); existing.requirement=requirement; if(data.isJob!==undefined)existing.is_task_point=task.is_task_point; if (existing.kind === 'unknown') existing.kind = kind; }
+  }
+  // Inline images are attachments too, but have no iframe/card. Match their
+  // stable resource IDs before considering them optional reference material.
+  for (const attachment of attachments) {
+    const property=attachment.property||{};
+    if (String(property.module||'').toLowerCase()!=='insertimage'||!property.objectid) continue;
+    const identity=attachment.jobid||attachment._jobid||property._jobid||property.jobid||property.objectid;
+    const task=taskData.find(item=>item.local_id===String(identity));
+    const images=Array.from(document.querySelectorAll('img[_jobid]')).filter(image=>image.getAttribute('_jobid')===String(property._jobid||identity)&&[image.getAttribute('src'),image.getAttribute('data-original')].some(value=>value?.includes(String(property.objectid))));
+    if (!task||images.length!==1) continue;
+    const image=images[0], container=image.closest('.ans-attach-ct,[data-study-task-id]');
+    task.kind='image';
+    task.locator={image:String(identity)};
+    task.non_task_candidate=!task.declared_task_point&&![false,'false'].includes(attachment.isPassed)&&!attachment.jobid&&!attachment._jobid&&!property.jobid&&!image.hasAttribute('jobid')&&!image.hasAttribute('data-jobid')&&!image.hasAttribute('data-study-task-id')&&!container?.matches('.ans-job-finished,[data-platform-state],[data-locked]')&&!container?.querySelector('.ans-job-icon');
   }
   const questions = (__STUDY_QUESTIONS__)(root).snapshot();
   const body = document.body?.innerText || '';

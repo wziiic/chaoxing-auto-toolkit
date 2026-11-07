@@ -304,6 +304,19 @@ def until(check, timeout=5):
 
 
 class QueueTests(unittest.TestCase):
+    def test_cached_unknown_image_reference_continues_to_next_task(self):
+        manager=self.make_manager(lambda prompt,config:{})
+        first=manager.state['tasks'][0];first.update(kind='unknown',platform='unknown')
+        second=copy.deepcopy(first);second.update(id='following-quiz',kind='quiz')
+        manager.state['tasks'].append(second)
+        with patch.object(manager.driver,'optional_resource',side_effect=lambda task:task['id']==first['id']),patch.object(manager.driver,'platform',return_value='unknown'):
+            manager.command('start',{'auto_fill':False})
+            until(lambda:manager.snapshot()['status']=='paused')
+        self.assertEqual(first['status'],'reference')
+        self.assertFalse(first['verified'])
+        self.assertFalse(first['is_task_point'])
+        self.assertEqual(manager.state['current'],'following-quiz')
+
     def test_optional_news_video_does_not_block_or_play(self):
         manager=self.make_manager(lambda prompt,config:{})
         first=manager.state['tasks'][0];first.update(kind='video',platform='unknown')
@@ -634,6 +647,27 @@ class BrowserFixtureTests(unittest.TestCase):
         self.assertFalse(self.driver.optional_resource(task))
         self.page.locator('.ans-job-icon').evaluate('e=>e.remove()')
         self.page.evaluate('window.mArg.attachments[0].job=true')
+        self.assertFalse(self.driver.optional_resource(task))
+
+    def test_inline_image_reference_requires_matching_resource_and_no_task_evidence(self):
+        self.page.evaluate('''()=>{window.mArg={attachments:[{property:{module:'insertimage',type:'.png',objectid:'qr-resource',_jobid:'qr-image',name:'Scan news'}}]};document.querySelector('[data-chapter-id="101"]').insertAdjacentHTML('beforeend','<span class="icon_Completed"></span>');document.body.insertAdjacentHTML('beforeend','<img _jobid="qr-image" src="/qr-resource.png">')}''')
+        task={**self.task('qr-image'),'kind':'unknown'}
+        self.assertTrue(self.driver.optional_resource(task))
+        raw=next(t for t in self.page.evaluate(DOM_SCRIPT)['tasks'] if t['local_id']=='qr-image')
+        self.assertEqual(raw['kind'],'image')
+        self.page.locator('.icon_Completed').evaluate('e=>e.remove()')
+        self.assertFalse(self.driver.optional_resource(task))
+        self.page.evaluate('''()=>document.querySelector('[data-chapter-id="101"]').insertAdjacentHTML('beforeend','<span class="icon_Completed"></span>')''')
+        for field,value in [('job',True),('isPassed',False),('jobid','required-job')]:
+            self.page.evaluate('([key,value])=>window.mArg.attachments[0][key]=value',[field,value])
+            if field=='jobid':
+                with self.assertRaises(StudyError):self.driver.optional_resource(task)
+            else:self.assertFalse(self.driver.optional_resource(task))
+            self.page.evaluate('key=>delete window.mArg.attachments[0][key]',field)
+        self.page.locator('img[_jobid]').evaluate('e=>{const c=document.createElement("div");c.className="ans-attach-ct";e.replaceWith(c);c.append(e);c.insertAdjacentHTML("beforeend","<span class=ans-job-icon>Task</span>")}')
+        self.assertFalse(self.driver.optional_resource(task))
+        self.page.locator('.ans-job-icon').evaluate('e=>e.remove()')
+        self.page.locator('img[_jobid]').evaluate('e=>e.src="/different-resource.png"')
         self.assertFalse(self.driver.optional_resource(task))
 
     def test_non_job_knowledge_graph_is_reference_but_job_marker_is_not(self):

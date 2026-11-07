@@ -22,7 +22,7 @@
     if(!active){clearTimeout(tipTimer);tipTimer=null;}
   }
   const statuses = {reference:'说明内容',not_applicable:'非任务点',idle:'未读取',ready:'待执行',preparing:'准备中',scanning:'读取目录中',pending:'待执行',running:'执行中',waiting_model:'等待模型',verifying:'等待平台核验',paused:'已暂停',pausing:'正在暂停',stopping:'正在停止',stopped:'已停止',done:'已完成',failed:'失败',manual:'需人工处理',needs_attention:'本轮结束 / 待处理',todo:'未完成',locked:'锁定',unknown:'未知'};
-  const kinds = {video:'视频',audio:'音频',text:'文本阅读',document:'文档 / 课件',quiz:'章节练习',embedded_quiz:'视频内嵌题',discussion:'讨论',unknown:'待识别'};
+  const kinds = {video:'视频',audio:'音频',text:'文本阅读',image:'图片资料',document:'文档 / 课件',quiz:'章节练习',embedded_quiz:'视频内嵌题',discussion:'讨论',unknown:'待识别'};
   const submissions = {'':'—',filled:'已填写',intent:'已记录提交意图',saved:'已保存',submitted:'已提交',graded:'已判分',verified:'平台已核验完成'};
   async function api(path, body) {
     const headers = token ? {'X-Access-Token':token} : {};
