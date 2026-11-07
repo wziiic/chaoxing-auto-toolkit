@@ -56,8 +56,8 @@ class StudyManager:
             self.state.setdefault('lazy_loading',True)
             self.state.setdefault('directory_complete',False)
             self.state.setdefault('chapter_states',{})
-            pending={t['id'] for t in self.state['tasks'] if not (t.get('verified') and t['platform']=='done') and not (t['kind']=='discussion' and not t.get('is_task_point',True) and t.get('discussion_state')=='published')}
-            self.state.setdefault('queue_scope','all' if not self.state.get('selection') or pending.issubset(set(self.state['selection'])) else 'selected')
+            # Legacy records did not store all-vs-selected intent. Never expand them.
+            self.state.setdefault('queue_scope','selected' if self.state.get('selection') else 'all')
             for chapter_id,value in list(self.state['chapter_states'].items()):
                 if value=='loading':self.state['chapter_states'][chapter_id]='unseen'
             self.state['catalog_complete']=bool(self.state.get('directory_complete') and self.state['chapters']) and all(self.state['chapter_states'].get(c['id'])=='ready' for c in self.state['chapters'])

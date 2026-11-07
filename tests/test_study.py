@@ -238,6 +238,19 @@ class LazyQueueTests(unittest.TestCase):
         self.assertEqual(manager.driver.completed,{'101a'})
         self.assertFalse(manager.state['catalog_complete'])
 
+    def test_legacy_selection_is_not_expanded_to_new_tasks(self):
+        manager=self.manager()
+        manager.state.update(tasks=manager.driver.chapter_tasks(manager.state['chapters'][0])[:1],selection=['101a'])
+        manager.state.pop('queue_scope',None)
+        manager.persist();manager.close()
+        restored=StudyManager(manager.folder,lambda:{},lambda prompt,config:{'q1':'B'},browser_factory=LazyFakeBrowser)
+        self.addCleanup(restored.close)
+        self.assertEqual(restored.state['queue_scope'],'selected')
+        restored.command('resume',{'auto_fill':True,'auto_submit':True})
+        until(lambda:restored.snapshot()['status']=='needs_attention',timeout=10)
+        self.assertEqual(restored.driver.completed,{'101a'})
+        self.assertEqual(restored.driver.chapter_calls,['101'])
+
     def test_partial_chapter_cannot_report_entire_course_complete(self):
         manager=self.manager()
         scan=manager.driver.scan_chapter
