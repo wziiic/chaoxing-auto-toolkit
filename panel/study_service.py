@@ -391,6 +391,9 @@ class StudyManager:
                     self.update(task,kind='text',reference_only=True,platform='not_applicable',status='reference',reason='平台目录已通过，此页为无附件任务的文字说明，不计入任务点')
                     self.log('已确认当前为无任务点说明页，继续后续任务')
                     continue
+            if not task.get('is_task_point',True) and task['kind'] in ('video','audio','document') and task['platform']!='locked':
+                self.update(task,reference_only=True,status='reference',verified=False,reason='平台标记为非任务点参考资料')
+                continue
             optional_discussion=task['kind']=='discussion' and not task.get('is_task_point',True) and task.get('auto_discussion')
             if (not task.get("is_task_point", True) and not optional_discussion) or task["platform"] == "locked":
                 self.update(task, status="manual", reason=task["reason"] or "任务锁定或尚未识别")
@@ -401,6 +404,10 @@ class StudyManager:
                     self.driver.activate(task)
                     platform = self.driver.platform(task)
                     self.update(task, platform=platform)
+                    if task['kind'] in ('video','audio','document') and self.driver.optional_resource(task):
+                        self.update(task,is_task_point=False,reference_only=True,platform='not_applicable',status='reference',verified=False,reason='目录已通过，该媒体没有任务点标记或必做声明，属于参考资料')
+                        self.log('已确认当前媒体是非任务点参考资料，继续后续任务')
+                        continue
                     if platform == "done" and not optional_discussion:
                         if task['kind'] in ('text','document'):
                             self.read(task)

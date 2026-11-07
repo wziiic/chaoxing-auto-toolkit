@@ -126,6 +126,9 @@ class FakeBrowser:
     def activate(self, task):
         self.checkpoint()
 
+    def optional_resource(self, task):
+        return False
+
     def platform(self, task):
         self.verify_count += 1
         return "done" if self.complete else "todo"
@@ -174,6 +177,20 @@ def until(check, timeout=5):
 
 
 class QueueTests(unittest.TestCase):
+    def test_optional_news_video_does_not_block_or_play(self):
+        manager=self.make_manager(lambda prompt,config:{})
+        first=manager.state['tasks'][0];first.update(kind='video',platform='unknown')
+        second=copy.deepcopy(first);second.update(id='following-quiz',kind='quiz')
+        manager.state['tasks'].append(second)
+        with patch.object(manager.driver,'optional_resource',return_value=True),patch.object(manager.driver,'platform',return_value='unknown'):
+            manager.command('start',{'auto_fill':False})
+            until(lambda:manager.snapshot()['status']=='paused')
+        self.assertEqual(first['status'],'reference')
+        self.assertFalse(first['is_task_point'])
+        self.assertFalse(first['verified'])
+        self.assertEqual(manager.driver.play_count,0)
+        self.assertEqual(manager.state['current'],'following-quiz')
+
     def test_interrupted_load_recovers_chapters_from_retained_tasks(self):
         manager=self.make_manager(lambda prompt,config:{})
         manager.state['chapters']=[]
@@ -472,6 +489,18 @@ class QueueTests(unittest.TestCase):
 
 
 class BrowserFixtureTests(unittest.TestCase):
+    def test_optional_media_requires_completed_catalog_and_no_job_evidence(self):
+        self.page.evaluate("""()=>{window.mArg={attachments:[{type:'video',property:{_jobid:'news-video'}}]};document.querySelector('[data-chapter-id="101"]').insertAdjacentHTML('beforeend','<span class="icon_Completed"></span>');const e=document.createElement('div');e.className='ans-attach-ct videoContainer';e.innerHTML='<iframe></iframe>';e.querySelector('iframe').setAttribute('data',JSON.stringify({_jobid:'news-video',type:'.mp4'}));document.body.append(e)}""")
+        task={**self.task('news-video'),'kind':'video'}
+        self.assertTrue(self.driver.optional_resource(task))
+        self.page.locator('.icon_Completed').evaluate('e=>e.remove()')
+        self.assertFalse(self.driver.optional_resource(task))
+        self.page.evaluate("document.querySelector('[data-chapter-id=\"101\"]').insertAdjacentHTML('beforeend','<span class=icon_Completed></span>');document.querySelector('.ans-attach-ct').insertAdjacentHTML('beforeend','<span class=ans-job-icon>Task</span>')")
+        self.assertFalse(self.driver.optional_resource(task))
+        self.page.locator('.ans-job-icon').evaluate('e=>e.remove()')
+        self.page.evaluate('window.mArg.attachments[0].job=true')
+        self.assertFalse(self.driver.optional_resource(task))
+
     def test_non_job_knowledge_graph_is_reference_but_job_marker_is_not(self):
         html='''<p>Fixture chapter learning overview.</p><script>window.mArg={attachments:[{type:'knowledgeGraph',job:null,property:{module:'knowledgeGraph',knowledgeGraphId:'fixture-graph'}}]}</script><div class="ans-attach-ct"><iframe data='{"knowledgeGraphId":"fixture-graph"}' src="https://mooc1.chaoxing.com/graph-fixture"></iframe></div>'''
         self.context.route('**/knowledge/cards',lambda route:route.fulfill(content_type='text/html',body=html))

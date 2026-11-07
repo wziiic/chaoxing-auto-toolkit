@@ -109,7 +109,7 @@
       const row=element('tr',undefined,'chapter');const cell=element('td',chapter.title||chapter.id);cell.colSpan=7;cell.style.paddingLeft=`${12+depth(chapter,next.chapters)*18}px`;row.append(cell);body.append(row);
       for(const item of next.tasks.filter(item=>item.chapter_id===chapter.id)){
         const row=element('tr'); const selection=element('td');const checkbox=element('input');checkbox.type='checkbox';checkbox.checked=selected.has(item.id);checkbox.setAttribute('aria-label','选择 '+item.title);checkbox.addEventListener('change',()=>{checkbox.checked?selected.add(item.id):selected.delete(item.id);saveSettings()});selection.append(checkbox);row.append(selection);
-        const title=element('td',item.title+(item.is_task_point===false?(item.reference_only?'（说明内容，非任务点）':item.kind==='discussion'?'（非必做讨论）':'（参考内容 / 待解析项）'):''),'task-name');
+        const title=element('td',item.title+(item.is_task_point===false?(item.reference_only?'（参考内容，非任务点）':item.kind==='discussion'?'（非必做讨论）':'（参考内容 / 待解析项）'):''),'task-name');
         if(item.requirement)title.append(element('small',item.requirement,'task-requirement'));row.append(title);
         row.append(element('td',(kinds[item.kind]||item.kind)+(item.has_popup?' · 含播放中弹题':'')));
         for(const value of [item.platform,item.status]){const cell=element('td');cell.append(element('span',statuses[value]||value,'pill '+value));row.append(cell);}

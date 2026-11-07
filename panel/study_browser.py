@@ -232,6 +232,13 @@ class CourseBrowser:
                         for chapter in data.get('chapters',[]) if chapter['id']==chapter_id)
         return completed and any(data.get('reference_content') for frame,data in samples)
 
+    def optional_resource(self, task):
+        matches,samples,failures=self.find(task)
+        completed=any(chapter.get('completed') for frame,data in samples
+                      for chapter in data.get('chapters',[]) if chapter['id']==task['chapter_id'])
+        dom=[raw for frame,data,raw in matches if raw.get('locator',{}).get('dom')]
+        return not failures and not any(data.get('formal_exam') for _,data in samples) and completed and bool(dom) and all(raw.get('non_task_candidate') for raw in dom)
+
     def inspect_reference(self, task):
         samples, failures = self.enter_chapter(task['chapter_id'])
         return self.reference_only(task['chapter_id'],samples,failures)
@@ -340,7 +347,13 @@ class CourseBrowser:
                         task = self.task(task_id, chapter, raw["platform"], raw["kind"], raw["reason"])
                         task.update(title=raw["title"], local_id=raw["local_id"], step=step, restricted=data["restricted"], formal_exam=data["formal_exam"],
                                     is_task_point=raw.get("is_task_point",True), requirement=raw.get("requirement",""))
+                        completed=any(c.get('completed') for _,d in samples for c in d.get('chapters',[]) if c['id']==chapter['id'])
+                        if raw.get('non_task_candidate') and completed and not failures:
+                            task.update(is_task_point=False,reference_only=True,platform='not_applicable',status='reference',verified=False,reason='目录已通过，媒体卡片没有任务点标记或必做声明，作为参考资料保留')
                         existing = tasks.get(task_id)
+                        if existing and bool(existing.get('reference_only')) != bool(task.get('reference_only')):
+                            task.update(reference_only=False,is_task_point=True,platform='unknown',reason='不同学习步骤的任务点标记不一致，请在原页面核验')
+                            tasks[task_id]=task
                         if existing and existing["platform"] != task["platform"] and task["platform"] != "unknown":
                             task["platform"] = "unknown"
                             task["reason"] = "不同页面的任务状态不一致，需重新核验"
@@ -348,7 +361,7 @@ class CourseBrowser:
                             task["platform"] = existing["platform"]
                             task["verified"] = existing["verified"]
                         task["verified"] = task["platform"] == "done"
-                        task["status"] = "done" if task["verified"] else "pending"
+                        task["status"] = "reference" if task.get("reference_only") else "done" if task["verified"] else "pending"
                         if not existing or task["platform"] != "unknown" or step:
                             tasks[task_id] = task
                         self.locations[task_id] = (chapter["id"], step)
