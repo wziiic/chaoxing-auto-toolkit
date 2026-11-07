@@ -688,7 +688,18 @@ class BrowserFixtureTests(unittest.TestCase):
         raw=next(t for t in self.page.evaluate(DOM_SCRIPT)['tasks'] if t['local_id']=='qr-image')
         self.assertEqual(raw['kind'],'image')
         self.page.locator('.icon_Completed').evaluate('e=>e.remove()')
-        self.assertFalse(self.driver.optional_resource(task))
+        self.assertTrue(self.driver.optional_resource(task))
+        samples,failures=self.driver.snapshots()
+        chapter={'id':'101','title':'Mixed chapter','locked':False,'parent_id':''}
+        with patch.object(self.driver,'enter_chapter',return_value=(samples,failures)):
+            tasks,complete=self.driver.scan_chapter('fixture',chapter)
+        image=next(t for t in tasks if t.get('local_id')=='qr-image')
+        self.assertTrue(image['reference_only'])
+        self.assertFalse(image['is_task_point'])
+        self.assertFalse(image['verified'])
+        videos=[t for t in tasks if t['kind']=='video']
+        self.assertEqual(len(videos),2)
+        self.assertTrue(all(t['is_task_point'] and not t['verified'] for t in videos))
         self.page.evaluate('''()=>document.querySelector('[data-chapter-id="101"]').insertAdjacentHTML('beforeend','<span class="icon_Completed"></span>')''')
         for field,value in [('job',True),('isPassed',False),('jobid','required-job')]:
             self.page.evaluate('([key,value])=>window.mArg.attachments[0][key]=value',[field,value])

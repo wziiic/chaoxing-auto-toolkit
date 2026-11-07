@@ -232,12 +232,20 @@ class CourseBrowser:
                         for chapter in data.get('chapters',[]) if chapter['id']==chapter_id)
         return completed and any(data.get('reference_content') for frame,data in samples)
 
+    @staticmethod
+    def reference_resource(raw, chapter_completed):
+        # A uniquely matched, unmarked inline image is presentation content,
+        # even in a chapter which still has required videos. Media still needs
+        # the completed directory signal before it can be treated as optional.
+        return bool(raw.get('non_task_candidate') and (chapter_completed or
+                    (raw.get('kind')=='image' and raw.get('locator',{}).get('image'))))
+
     def optional_resource(self, task):
         matches,samples,failures=self.find(task)
         completed=any(chapter.get('completed') for frame,data in samples
                       for chapter in data.get('chapters',[]) if chapter['id']==task['chapter_id'])
         dom=[raw for frame,data,raw in matches if raw.get('locator',{}).get('dom') or raw.get('locator',{}).get('image')]
-        return not failures and not any(data.get('formal_exam') for _,data in samples) and completed and bool(dom) and all(raw.get('non_task_candidate') for raw in dom)
+        return not failures and not any(data.get('formal_exam') for _,data in samples) and bool(dom) and all(self.reference_resource(raw,completed) for raw in dom)
 
     def inspect_reference(self, task):
         samples, failures = self.enter_chapter(task['chapter_id'])
@@ -355,8 +363,8 @@ class CourseBrowser:
                         task.update(title=raw["title"], local_id=raw["local_id"], step=step, restricted=data["restricted"], formal_exam=data["formal_exam"],
                                     is_task_point=raw.get("is_task_point",True), requirement=raw.get("requirement",""))
                         completed=any(c.get('completed') for _,d in samples for c in d.get('chapters',[]) if c['id']==chapter['id'])
-                        if raw.get('non_task_candidate') and completed and not failures:
-                            task.update(is_task_point=False,reference_only=True,platform='not_applicable',status='reference',verified=False,reason='目录已通过，资料没有任务点标记或必做声明，作为参考资料保留')
+                        if self.reference_resource(raw,completed) and not failures and not any(d.get('formal_exam') for _,d in samples):
+                            task.update(is_task_point=False,reference_only=True,platform='not_applicable',status='reference',verified=False,reason='资料已与页面对应且无必做标记，作为参考资料保留')
                         existing = tasks.get(task_id)
                         if existing and bool(existing.get('reference_only')) != bool(task.get('reference_only')):
                             task.update(reference_only=False,is_task_point=True,platform='unknown',reason='不同学习步骤的任务点标记不一致，请在原页面核验')

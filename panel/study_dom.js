@@ -76,7 +76,8 @@
     const image=images[0], container=image.closest('.ans-attach-ct,[data-study-task-id]');
     task.kind='image';
     task.locator={image:String(identity)};
-    task.non_task_candidate=!task.declared_task_point&&![false,'false'].includes(attachment.isPassed)&&!attachment.jobid&&!attachment._jobid&&!property.jobid&&!image.hasAttribute('jobid')&&!image.hasAttribute('data-jobid')&&!image.hasAttribute('data-study-task-id')&&!container?.matches('.ans-job-finished,[data-platform-state],[data-locked]')&&!container?.querySelector('.ans-job-icon');
+    const containerData=parse(container?.querySelector('iframe')?.getAttribute('data')||container?.getAttribute('data'));
+    task.non_task_candidate=!task.declared_task_point&&![false,'false'].includes(attachment.isPassed)&&!attachment.jobid&&!attachment._jobid&&!property.jobid&&!image.matches('[jobid],[data-jobid],[data-study-task-id],[data-platform-state],[data-locked],[isjob="true"],[data-is-job="true"]')&&![true,'true',1,'1'].includes(containerData.isJob)&&!containerData.jobid&&!container?.matches('.ans-job-finished,[data-platform-state],[data-locked],[jobid],[data-jobid]')&&!container?.querySelector('.ans-job-icon');
   }
   const questions = (__STUDY_QUESTIONS__)(root).snapshot();
   const body = document.body?.innerText || '';
