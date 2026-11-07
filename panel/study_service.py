@@ -22,6 +22,17 @@ class StudyManager:
             self.course_url = self.store.saved_link(self.state["course_id"])
         except (StudyError, UnicodeError):
             pass
+        if self.state.get('tasks') and not self.state.get('chapters'):
+            # Older interrupted loads discarded the directory but retained tasks.
+            chapters={}
+            for task in self.state['tasks']:
+                chapter=task.get('chapter_id')
+                if chapter:
+                    chapters.setdefault(chapter,{'id':chapter,'title':'章节 '+chapter,'parent_id':''})
+                    if not task.get('local_id') and task.get('title'):
+                        chapters[chapter]['title']=task['title']
+            self.state['chapters']=list(chapters.values())
+            self.state['catalog_complete']=False
         self.restored_from_cache = bool(self.state["course_id"])
         if self.state.get("read_progress", {}).get("active"):
             self.state["read_progress"].update(active=False, phase="cancelled")
@@ -281,10 +292,10 @@ class StudyManager:
         previous = self.store.course(course_id) or {}
         with self.lock:
             self.course_url = url
-            self.state.update(course_id=course_id, url=public_url, status="scanning", chapters=[], tasks=previous.get("tasks", []),
+            self.state.update(course_id=course_id, url=public_url, status="scanning", chapters=previous.get("chapters", []), tasks=previous.get("tasks", []),
                               selection=previous.get("selection", []), options=previous.get("options", {}), catalog_complete=False,
                               current="", message="正在逐章节读取任务点")
-        self.loaded = False
+        self.loaded = bool(previous.get('chapters') or previous.get('tasks'))
         self.driver.start(url)
         self.loaded = True
         self.refresh()

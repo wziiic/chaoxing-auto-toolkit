@@ -174,6 +174,21 @@ def until(check, timeout=5):
 
 
 class QueueTests(unittest.TestCase):
+    def test_interrupted_load_recovers_chapters_from_retained_tasks(self):
+        manager=self.make_manager(lambda prompt,config:{})
+        manager.state['chapters']=[]
+        manager.store.save(manager.state)
+        manager.close()
+        restored=StudyManager(manager.folder,lambda:{},lambda prompt,config:{},browser_factory=FakeBrowser)
+        self.addCleanup(restored.close)
+        self.assertTrue(restored.snapshot()['loaded'])
+        self.assertEqual(restored.state['chapters'][0]['id'],'101')
+        self.assertFalse(restored.state['catalog_complete'])
+        self.assertEqual(restored.driver.scan_count,0)
+        restored.command('start',{'auto_fill':False})
+        until(lambda:restored.snapshot()['status']=='paused')
+        self.assertIn('自动填写未开启',restored.state['tasks'][0]['reason'])
+
     def test_cached_plain_text_reference_does_not_pause_before_next_task(self):
         manager=self.make_manager(lambda prompt,config:{})
         first=manager.state['tasks'][0]
@@ -457,6 +472,24 @@ class QueueTests(unittest.TestCase):
 
 
 class BrowserFixtureTests(unittest.TestCase):
+    def test_non_job_knowledge_graph_is_reference_but_job_marker_is_not(self):
+        html='''<p>Fixture chapter learning overview.</p><script>window.mArg={attachments:[{type:'knowledgeGraph',job:null,property:{module:'knowledgeGraph',knowledgeGraphId:'fixture-graph'}}]}</script><div class="ans-attach-ct"><iframe data='{"knowledgeGraphId":"fixture-graph"}' src="https://mooc1.chaoxing.com/graph-fixture"></iframe></div>'''
+        self.context.route('**/knowledge/cards',lambda route:route.fulfill(content_type='text/html',body=html))
+        self.context.route('**/graph-fixture',lambda route:route.fulfill(content_type='text/html',body='<p>Fixture graph</p>'))
+        self.page.locator('[data-study-task-id]').evaluate_all('nodes=>nodes.forEach(n=>n.remove())')
+        self.page.evaluate("""()=>{document.querySelector('[data-chapter-id="101"]').insertAdjacentHTML('beforeend','<span class="icon_Completed"></span>');const f=document.createElement('iframe');f.src='https://mooc1.chaoxing.com/knowledge/cards';document.body.append(f)}""")
+        self.page.frame_locator('iframe').locator('.ans-attach-ct').wait_for()
+        samples,failures=self.driver.snapshots()
+        self.assertTrue(self.driver.reference_only('101',samples,failures))
+        frame=next(f for f in self.page.frames if f.url.endswith('/knowledge/cards'))
+        frame.locator('.ans-attach-ct').evaluate("e=>e.insertAdjacentHTML('afterbegin','<span class=ans-job-icon>Task</span>')")
+        samples,failures=self.driver.snapshots()
+        self.assertFalse(self.driver.reference_only('101',samples,failures))
+        frame.locator('.ans-job-icon').evaluate('e=>e.remove()')
+        frame.evaluate('window.mArg.attachments[0].job=true')
+        samples,failures=self.driver.snapshots()
+        self.assertFalse(self.driver.reference_only('101',samples,failures))
+
     def test_plain_text_reference_requires_empty_attachments_and_completed_catalog(self):
         self.context.route('**/knowledge/cards',lambda route:route.fulfill(content_type='text/html',body='<p>Fixture course teaching objectives, without task attachments.</p><script>window.mArg={attachments:[]}</script>'))
         self.page.locator('[data-study-task-id]').evaluate_all('nodes=>nodes.forEach(n=>n.remove())')
@@ -466,6 +499,16 @@ class BrowserFixtureTests(unittest.TestCase):
         self.assertTrue(self.driver.reference_only('101',samples,failures))
         self.assertFalse(self.driver.reference_only('101',samples,1))
         frame=next(f for f in self.page.frames if f.url.endswith('/knowledge/cards'))
+        frame.evaluate("()=>{const e=document.createElement('audio');e.id='auditionAudio';e.style.display='none';document.body.append(e)}")
+        samples,failures=self.driver.snapshots()
+        self.assertTrue(self.driver.reference_only('101',samples,failures))
+        frame.locator('#auditionAudio').evaluate("e=>e.src='https://mooc1.chaoxing.com/real-audio.mp3'")
+        samples,failures=self.driver.snapshots()
+        self.assertFalse(self.driver.reference_only('101',samples,failures))
+        frame.locator('#auditionAudio').evaluate("e=>{e.removeAttribute('src');e.id='other-audio'}")
+        samples,failures=self.driver.snapshots()
+        self.assertFalse(self.driver.reference_only('101',samples,failures))
+        frame.locator('#other-audio').evaluate('e=>e.remove()')
         frame.evaluate('window.mArg.attachments=[{jobid:"pending-job",type:"video"}]')
         samples,failures=self.driver.snapshots()
         self.assertFalse(self.driver.reference_only('101',samples,failures))

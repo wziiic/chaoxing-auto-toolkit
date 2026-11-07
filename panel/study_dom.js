@@ -70,7 +70,17 @@
   const nodes = chapterNodes();
   const chapters = nodes.map(element => ({id: chapterId(element), title: element.querySelector('.posCatalog_name')?.getAttribute('title') || text(element.querySelector('.posCatalog_name')) || element.getAttribute('title') || text(element).slice(0,120), parent_id: chapterId(element.parentElement?.closest('.posCatalog_select, [data-chapter-id], [knowledgeid]') || document.createElement('div')), locked: element.getAttribute('data-locked') === 'true' || /locked|lockCatalog/.test(element.className), reason: element.getAttribute('data-reason') || element.getAttribute('title') || ''}));
   for(const chapter of chapters){const node=nodes.find(element=>chapterId(element)===chapter.id);chapter.completed=!!node?.querySelector('.icon_Completed');}
-  const referenceContent=/\/knowledge\/cards$/.test(location.pathname)&&Array.isArray(window.mArg?.attachments)&&window.mArg.attachments.length===0&&taskData.length===0&&questions.length===0&&!document.querySelector('iframe,video,audio,.ans-attach-ct')&&body.trim().length>=10&&document.readyState!=='loading';
+  const graphAttachments=attachments.length>0&&attachments.every(a=>String(a.type||a.property?.module||'').toLowerCase()==='knowledgegraph'&&![true,'true',1,'1'].includes(a.job??a.property?.isJob)&&!(a.jobid||a._jobid||a.property?._jobid||a.property?.jobid)&&a.property?.knowledgeGraphId);
+  const graphIds=new Set(attachments.map(a=>String(a.property?.knowledgeGraphId||'')));
+  const cards=Array.from(document.querySelectorAll('.ans-attach-ct'));
+  const graphCards=graphAttachments&&cards.length===attachments.length&&cards.every(e=>{
+    const data=parse(e.querySelector('iframe')?.getAttribute('data'));
+    return graphIds.has(String(data.knowledgeGraphId||''))&&!data._jobid&&!data.jobid&&![true,'true',1,'1'].includes(data.isJob)&&!e.querySelector('.ans-job-icon')&&!e.getAttribute('jobid')&&!e.getAttribute('data-jobid');
+  });
+  const emptyAudition=e=>e.id==='auditionAudio'&&!e.getAttribute('src')&&!e.currentSrc&&!e.querySelector('source')&&getComputedStyle(e).display==='none';
+  const referenceContent=/\/knowledge\/cards$/.test(location.pathname)&&Array.isArray(window.mArg?.attachments)&&taskData.length===0&&questions.length===0&&!document.querySelector('video')&&!Array.from(document.querySelectorAll('audio')).some(e=>!emptyAudition(e))&&body.trim().length>=10&&document.readyState!=='loading'&&
+    ((attachments.length===0&&cards.length===0&&!document.querySelector('iframe'))||(graphCards&&Array.from(document.querySelectorAll('iframe')).every(e=>e.closest('.ans-attach-ct'))));
+
   const total = tree?.getAttribute('data-total-chapters');
   const incomplete = !!document.querySelector('#coursetree [aria-busy="true"], #coursetree .loading, #coursetree [data-lazy="true"]');
   const catalogComplete = !!tree && !!total && Number(total) === new Set(chapters.map(chapter => chapter.id).filter(Boolean)).size && !incomplete;
