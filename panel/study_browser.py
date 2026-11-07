@@ -298,10 +298,17 @@ class CourseBrowser:
                 continue
         raise StudyError("学习步骤已替换或不存在，请刷新任务目录")
 
-    def scan(self, course_id, report):
-        chapters, complete = self.catalogue()
+    def scan_chapter(self, course_id, chapter):
+        _, tasks, complete = self.scan(course_id, lambda progress: None, [chapter])
+        return tasks, complete
+
+    def scan(self, course_id, report, chapter_subset=None):
+        if chapter_subset is None:
+            chapters, complete = self.catalogue()
+            self.locations = {}
+        else:
+            chapters, complete = chapter_subset, True
         tasks = {}
-        self.locations = {}
         def progress(completed, chapter):
             report({"phase":"chapters", "completed":completed, "total":len(chapters),
                     "chapter":chapter["title"], "task_points":sum(item.get("is_task_point",True) for item in tasks.values()), "active":True})

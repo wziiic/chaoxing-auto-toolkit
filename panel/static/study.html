@@ -16,9 +16,9 @@
     <section class="card">
       <h2>课程与会话</h2>
       <label for="courseUrl">课程学习页链接</label>
-      <div class="row"><input id="courseUrl" type="url" autocomplete="off" spellcheck="false" placeholder="https://mooc1.chaoxing.com/mycourse/studentstudy?…"><button id="load" class="primary">读取课程</button><button id="refresh">刷新任务状态</button><button id="open">打开课程窗口</button></div>
-      <p class="hint">点击“读取课程”选择未完成课程，读取后自动滚动到学习设置；设置完成后点击“开始学习”。也可手动粘贴链接。登录失效时在课程窗口登录后刷新。</p>
-      <p id="message" class="notice" role="status">请输入课程链接。历史记录恢复后须重新读取平台状态。</p>
+      <div class="row"><input id="courseUrl" type="url" autocomplete="off" spellcheck="false" placeholder="https://mooc1.chaoxing.com/mycourse/studentstudy?…"><button id="load" class="primary">读取课程</button><button id="refresh">刷新课程目录</button><button id="open">打开课程窗口</button></div>
+      <p class="hint">点击“读取课程”选择未完成课程，只读取目录并滚动到学习设置；设置完成后点击“开始学习”，进入章节时再识别任务。也可手动粘贴链接。登录失效时在课程窗口登录后刷新。</p>
+      <p id="message" class="notice" role="status">请选择课程，或沿用上次记录继续；开始时会核验当前章节状态。</p>
 
     </section>
     <section class="card" id="studySettings" tabindex="-1" aria-label="学习设置">
@@ -52,7 +52,7 @@
     <p id="courseDirectoryNote" class="notice" role="status">正在读取账号课程…</p>
     <div id="directoryLoader" class="liquid-status" hidden><span class="liquid-orb" aria-hidden="true"></span><div class="liquid-main"><div class="liquid-label"><span id="directoryLabel">核对账号课程</span><strong id="directoryPercent"></strong></div><div id="directoryBar" class="liquid-track" role="progressbar" aria-label="课程列表读取进度" aria-valuemin="0" aria-valuemax="100"><span class="liquid-fill"></span></div><small id="directoryDetail"></small><small id="directoryTip" class="cat-tip" hidden></small></div></div>
     <div id="courseChoices" class="course-choices" aria-label="账号课程列表"></div>
-    <div class="picker-footer"><p class="hint">选择后读取任务并前往设置；点击“开始学习”才执行。状态未知的课程不会被当作已完成。</p><button id="loadTypedUrl">读取输入的链接</button></div>
+    <div class="picker-footer"><p class="hint">选择后读取目录并前往设置；点击“开始学习”才执行。状态未知的课程不会被当作已完成。</p><button id="loadTypedUrl">读取输入的链接</button></div>
   </dialog>
   <dialog id="discussionEditor" aria-labelledby="discussionTitle">
     <div class="section-heading"><h2 id="discussionTitle">编辑讨论</h2><button id="closeDiscussion">关闭</button></div>

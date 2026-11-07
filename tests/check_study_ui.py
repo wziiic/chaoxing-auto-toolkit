@@ -209,6 +209,24 @@ def main():
         assert page.locator('#cfgBase').is_visible()
         page.locator('#llmSettings').get_by_role('button',name='关闭',exact=True).click()
         assert not page.locator('#cfgBase').is_visible()
+        # Directory-only readiness: start is available before task discovery.
+        fixture_video=copy.deepcopy(state['tasks'][0])
+        state.update(lazy_loading=True,chapter_states={'101':'unseen'},chapters_checked=0,chapters_total=1,directory_complete=True,
+                     tasks=[],counts={'discovered':0,'verified':0,'failed':0,'manual':0,'waiting_verification':0},status='ready',
+                     read_progress={'scope':'catalogue','phase':'done','completed':1,'total':1,'active':False})
+        page.get_by_role('link',name='课程学习',exact=True).click()
+        page.wait_for_function("document.querySelector('#catalogNote').textContent.includes('已检查 0 / 1')")
+        assert page.locator('#all').is_enabled()
+        assert '尚未检查' in page.locator('#tasks').inner_text()
+        previous_loads=len(loads)
+        page.locator('#all').click()
+        page.wait_for_function("document.querySelector('#queueState').textContent==='执行中'")
+        assert len(loads)==previous_loads
+        state.update(tasks=[fixture_video],chapter_states={'101':'ready'},chapters_checked=1)
+        state['counts']['discovered']=1
+        page.wait_for_function("document.querySelector('#discovered').textContent==='1'")
+        assert '已检查 1 / 1' in page.locator('#catalogNote').inner_text()
+        assert fixture_video['title'] in page.locator('#tasks').inner_text()
         assert not errors, errors
         context.close()
         browser.close()

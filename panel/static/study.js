@@ -66,8 +66,8 @@
     }
     if(known)bar.setAttribute('aria-valuenow',String(percent));else bar.removeAttribute('aria-valuenow');
     bar.setAttribute('aria-valuetext',known?`${done} / ${total}`:'正在取得总数');
-    byId(prefix+'Label').textContent=active?(reading?'正在读取任务点':'正在核对课程'):progress.phase==='cancelled'?'读取已停止':progress.phase==='failed'?'读取中断':(reading?'上次课程读取':'课程列表读取');
-    byId(prefix+'Detail').textContent=known?`${done} / ${total} ${reading?'章节':'课程'}${progress.task_points!==undefined?' · 已发现 '+progress.task_points+' 个任务点':''}${progress.chapter?' · '+progress.chapter:''}`:(progress.chapter||'连接课程页面，等待平台目录…');
+    byId(prefix+'Label').textContent=active?(reading?(progress.scope==='catalogue'?'正在读取课程目录':'正在读取任务点'):'正在核对课程'):progress.phase==='cancelled'?'读取已停止':progress.phase==='failed'?'读取中断':(reading?'上次课程读取':'课程列表读取');
+    byId(prefix+'Detail').textContent=known?`${done} / ${total} ${reading?(progress.scope==='catalogue'?'目录阶段':'章节'):'课程'}${progress.task_points!==undefined?' · 已发现 '+progress.task_points+' 个任务点':''}${progress.chapter?' · '+progress.chapter:''}`:(progress.chapter||'连接课程页面，等待平台目录…');
     tips();
   }
   function render(next) {
@@ -75,10 +75,11 @@
     liquid('settings',next.read_progress);
     byId('connection').textContent=next.worker_responsive?'服务已连接':'队列长时间无响应；请关闭课程浏览器后重新读取';
     byId('queueState').textContent=statuses[next.status]||next.status;
-    if(awaitingSetup)byId('setupNote').textContent=['preparing','scanning'].includes(next.status)?'正在读取课程。可以先调整设置；读取完成后点击“开始学习”。':next.loaded&&next.status==='ready'?'课程已读取，请确认下方设置，再点击“开始学习”。':'读取尚未完成，请查看提示；完成读取后再开始学习。';
+    if(awaitingSetup)byId('setupNote').textContent=['preparing','scanning'].includes(next.status)?'正在读取课程。可以先调整设置；读取完成后点击“开始学习”。':next.loaded&&next.status==='ready'?(next.lazy_loading?'课程目录已就绪，请确认设置，再点击“开始学习”；进入章节时实时识别任务。':'课程已读取，请确认下方设置，再点击“开始学习”。'):'读取尚未完成，请查看提示；完成读取后再开始学习。';
     if(next.message)message(next.message);
     for(const [key,value] of Object.entries(next.counts||{})) if(byId(key))byId(key).textContent=String(value);
     byId('catalogNote').textContent=next.catalog_complete?'平台目录数量已核对；完成数仍只按具体任务点计算。':'目录完整性未确认：以下为已发现的章节及任务，不代表全部课程。待解析项不计入任务点数量。';
+    if(next.lazy_loading)byId('catalogNote').textContent=`已检查 ${next.chapters_checked||0} / ${next.chapters_total||next.chapters.length} 个章节；任务点数量随学习逐步更新。未检查章节不能视为已完成。${next.directory_complete?'':'课程目录完整性尚未确认。'}`;
     if(next.restored_from_cache)byId('catalogNote').textContent='沿用上次目录和平台状态，未自动刷新。'+byId('catalogNote').textContent;
     if(!initialized){
       if(next.input_url&&!byId('courseUrl').value){byId('courseUrl').value=next.input_url;displayedCourseUrl=next.input_url;}
@@ -106,7 +107,7 @@
     const existing=new Set(next.tasks.map(item=>item.id));for(const id of selected)if(!existing.has(id))selected.delete(id);
     const body=byId('tasks');body.replaceChildren();
     for(const chapter of next.chapters){
-      const row=element('tr',undefined,'chapter');const cell=element('td',chapter.title||chapter.id);cell.colSpan=7;cell.style.paddingLeft=`${12+depth(chapter,next.chapters)*18}px`;row.append(cell);body.append(row);
+      const row=element('tr',undefined,'chapter');const check=next.chapter_states?.[chapter.id];const label=next.lazy_loading?' · '+(({ready:'已识别',partial:'已检查，待核验',loading:active?'正在识别':'待继续识别'})[check]||'尚未检查'):'';const cell=element('td',(chapter.title||chapter.id)+label);cell.colSpan=7;cell.style.paddingLeft=`${12+depth(chapter,next.chapters)*18}px`;row.append(cell);body.append(row);
       for(const item of next.tasks.filter(item=>item.chapter_id===chapter.id)){
         const row=element('tr'); const selection=element('td');const checkbox=element('input');checkbox.type='checkbox';checkbox.checked=selected.has(item.id);checkbox.setAttribute('aria-label','选择 '+item.title);checkbox.addEventListener('change',()=>{checkbox.checked?selected.add(item.id):selected.delete(item.id);saveSettings()});selection.append(checkbox);row.append(selection);
         const title=element('td',item.title+(item.is_task_point===false?(item.reference_only?'（参考内容，非任务点）':item.kind==='discussion'?'（非必做讨论）':'（参考内容 / 待解析项）'):''),'task-name');

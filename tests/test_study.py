@@ -167,6 +167,120 @@ class FakeBrowser:
         pass
 
 
+class LazyFakeBrowser(FakeBrowser):
+    def __init__(self, checkpoint, log):
+        super().__init__(checkpoint,log)
+        self.chapter_calls=[]
+        self.completed=set()
+        self.events=[]
+        self.catalogue_count=0
+
+    def catalogue(self):
+        self.catalogue_count+=1
+        return [{'id':str(i),'title':'Chapter '+str(i),'parent_id':'','locked':False} for i in (101,102,103)],True
+
+    def chapter_tasks(self, chapter):
+        ids=['a','b'] if chapter['id']=='101' else ['a']
+        return [{'id':chapter['id']+suffix,'local_id':chapter['id']+suffix,'chapter_id':chapter['id'],'title':'Question '+suffix,'kind':'quiz',
+                 'platform':'done' if chapter['id']+suffix in self.completed else 'todo',
+                 'status':'done' if chapter['id']+suffix in self.completed else 'pending',
+                 'verified':chapter['id']+suffix in self.completed,'reason':'','progress':{},'attempts':0,'submission':'','is_task_point':True,'step':None} for suffix in ids]
+
+    def scan_chapter(self, course, chapter):
+        self.checkpoint()
+        self.chapter_calls.append(chapter['id']);self.events.append('scan:'+chapter['id'])
+        return self.chapter_tasks(chapter),True
+
+    def platform(self, task):
+        return 'done' if task['id'] in self.completed else 'todo'
+
+    def submit(self, task, questions=None, allow_restricted=False):
+        self.checkpoint();self.submit_count+=1;self.completed.add(task['id']);self.events.append('submit:'+task['id'])
+
+    def feedback(self, task, frame):
+        return 'submitted' if task['id'] in self.completed else ''
+
+
+class LazyQueueTests(unittest.TestCase):
+    def manager(self, model=lambda prompt,config:{'q1':'B'}):
+        folder=tempfile.TemporaryDirectory();self.addCleanup(folder.cleanup)
+        manager=StudyManager(folder.name,lambda:{},model,browser_factory=LazyFakeBrowser)
+        self.addCleanup(manager.close)
+        manager.command('load',{'url':LINK})
+        until(lambda:manager.snapshot()['status']=='ready')
+        return manager
+
+    def test_load_reads_directory_only_and_keeps_start_manual(self):
+        manager=self.manager()
+        self.assertTrue(manager.snapshot()['loaded'])
+        self.assertEqual(len(manager.state['chapters']),3)
+        self.assertEqual(manager.state['tasks'],[])
+        self.assertEqual(manager.driver.chapter_calls,[])
+        self.assertEqual(manager.driver.submit_count,0)
+        self.assertFalse(manager.state['catalog_complete'])
+        self.assertEqual(manager.snapshot()['chapters_checked'],0)
+
+    def test_tasks_execute_before_later_chapters_are_read(self):
+        manager=self.manager()
+        manager.command('start',{'auto_fill':True,'auto_submit':True})
+        until(lambda:manager.snapshot()['status']=='done',timeout=10)
+        self.assertEqual(manager.driver.chapter_calls,['101','102','103'])
+        self.assertLess(manager.driver.events.index('submit:101b'),manager.driver.events.index('scan:102'))
+        self.assertEqual(manager.driver.submit_count,4)
+        self.assertTrue(manager.snapshot()['task_discovery_complete'])
+
+    def test_selected_scope_does_not_execute_new_or_other_chapter_tasks(self):
+        manager=self.manager()
+        manager.state['tasks']=manager.driver.chapter_tasks(manager.state['chapters'][0])
+        manager.command('start',{'task_ids':['101a'],'auto_fill':True,'auto_submit':True})
+        until(lambda:manager.snapshot()['status']=='needs_attention')
+        self.assertEqual(manager.driver.chapter_calls,['101'])
+        self.assertEqual(manager.driver.completed,{'101a'})
+        self.assertFalse(manager.state['catalog_complete'])
+
+    def test_partial_chapter_cannot_report_entire_course_complete(self):
+        manager=self.manager()
+        scan=manager.driver.scan_chapter
+        manager.driver.scan_chapter=lambda course,chapter:(scan(course,chapter)[0],chapter['id']!='101')
+        manager.command('start',{'auto_fill':True,'auto_submit':True})
+        until(lambda:manager.snapshot()['status']=='needs_attention',timeout=10)
+        self.assertEqual(manager.snapshot()['counts']['verified'],4)
+        self.assertFalse(manager.state['catalog_complete'])
+        self.assertEqual(manager.state['chapter_states']['101'],'partial')
+
+    def test_restart_resumes_from_active_chapter_without_rereading_directory(self):
+        manager=self.manager()
+        manager.driver.completed.update({'101a','101b'})
+        manager.state.update(tasks=manager.driver.chapter_tasks(manager.state['chapters'][0]),chapter_states={'101':'ready'},active_chapter='102',queue_scope='all',selection=['101a','101b'])
+        manager.persist();manager.close()
+        restored=StudyManager(manager.folder,lambda:{},lambda prompt,config:{'q1':'B'},browser_factory=LazyFakeBrowser)
+        self.addCleanup(restored.close)
+        restored.driver.completed.update({'101a','101b'})
+        self.assertTrue(restored.snapshot()['loaded'])
+        self.assertEqual(restored.driver.catalogue_count,0)
+        self.assertEqual(restored.driver.chapter_calls,[])
+        restored.command('resume',{'auto_fill':True,'auto_submit':True})
+        until(lambda:restored.snapshot()['status']=='done',timeout=10)
+        self.assertEqual(restored.driver.chapter_calls,['102','103'])
+
+    def test_resume_all_keeps_discovering_beyond_cached_selection(self):
+        entered=threading.Event();release=threading.Event();calls=[]
+        def model(prompt,config):
+            calls.append(1)
+            if len(calls)==1:entered.set();release.wait(5)
+            return {'q1':'B'}
+        manager=self.manager(model)
+        manager.state['tasks']=manager.driver.chapter_tasks(manager.state['chapters'][0])[:1]
+        manager.command('start',{'auto_fill':True,'auto_submit':True})
+        self.assertTrue(entered.wait(3))
+        manager.command('pause');until(lambda:manager.snapshot()['status']=='paused')
+        self.assertEqual(manager.driver.submit_count,0)
+        release.set()
+        manager.command('resume',{'auto_fill':True,'auto_submit':True})
+        until(lambda:manager.snapshot()['status']=='done',timeout=10)
+        self.assertEqual(manager.driver.completed,{'101a','101b','102a','103a'})
+
+
 def until(check, timeout=5):
     deadline = time.monotonic() + timeout
     while time.monotonic() < deadline:
@@ -489,6 +603,14 @@ class QueueTests(unittest.TestCase):
 
 
 class BrowserFixtureTests(unittest.TestCase):
+    def test_single_chapter_scan_does_not_read_other_chapters(self):
+        chapter={'id':'101','title':'Fixture chapter','parent_id':'','locked':False}
+        with patch.object(self.driver,'catalogue',side_effect=AssertionError('must not reload full directory')),patch.object(self.driver,'enter_chapter',wraps=self.driver.enter_chapter) as enter:
+            tasks,complete=self.driver.scan_chapter('fixture',chapter)
+        self.assertEqual([call.args[0] for call in enter.call_args_list],['101'])
+        self.assertEqual(len([task for task in tasks if task['kind']=='video']),2)
+        self.assertTrue(complete)
+
     def test_optional_media_requires_completed_catalog_and_no_job_evidence(self):
         self.page.evaluate("""()=>{window.mArg={attachments:[{type:'video',property:{_jobid:'news-video'}}]};document.querySelector('[data-chapter-id="101"]').insertAdjacentHTML('beforeend','<span class="icon_Completed"></span>');const e=document.createElement('div');e.className='ans-attach-ct videoContainer';e.innerHTML='<iframe></iframe>';e.querySelector('iframe').setAttribute('data',JSON.stringify({_jobid:'news-video',type:'.mp4'}));document.body.append(e)}""")
         task={**self.task('news-video'),'kind':'video'}

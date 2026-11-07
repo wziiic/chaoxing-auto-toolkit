@@ -52,6 +52,15 @@ class StudyManager:
         self.closed = False
         self.driver = browser_factory(self.checkpoint, self.log)
         self.driver.action_lock = self.lock
+        if hasattr(self.driver,'scan_chapter'):
+            self.state.setdefault('lazy_loading',True)
+            self.state.setdefault('directory_complete',False)
+            self.state.setdefault('chapter_states',{})
+            pending={t['id'] for t in self.state['tasks'] if not (t.get('verified') and t['platform']=='done') and not (t['kind']=='discussion' and not t.get('is_task_point',True) and t.get('discussion_state')=='published')}
+            self.state.setdefault('queue_scope','all' if not self.state.get('selection') or pending.issubset(set(self.state['selection'])) else 'selected')
+            for chapter_id,value in list(self.state['chapter_states'].items()):
+                if value=='loading':self.state['chapter_states'][chapter_id]='unseen'
+            self.state['catalog_complete']=bool(self.state.get('directory_complete') and self.state['chapters']) and all(self.state['chapter_states'].get(c['id'])=='ready' for c in self.state['chapters'])
         self.course_lock = None
         self.loaded = bool((self.course_url or self.state["url"]) and self.state["chapters"])
         # Directory links stay in memory; the selected link is saved with user-bound encryption.
@@ -71,6 +80,11 @@ class StudyManager:
                             "failed": sum(task["status"] == "failed" for task in tasks),
                             "manual": sum(task["status"] == "manual" for task in tasks),
                             "waiting_verification": sum(task["status"] == "verifying" for task in tasks)}
+        if result.get('lazy_loading'):
+            states=result.get('chapter_states',{})
+            result['chapters_checked']=sum(states.get(c['id']) in ('ready','partial') for c in result['chapters'])
+            result['chapters_total']=len(result['chapters'])
+            result['task_discovery_complete']=bool(result['chapters']) and all(states.get(c['id'])=='ready' for c in result['chapters'])
         result["loaded"] = self.loaded
         result["input_url"] = self.course_url or self.state["url"]
         result["restored_from_cache"] = self.restored_from_cache
@@ -294,7 +308,9 @@ class StudyManager:
             self.course_url = url
             self.state.update(course_id=course_id, url=public_url, status="scanning", chapters=previous.get("chapters", []), tasks=previous.get("tasks", []),
                               selection=previous.get("selection", []), options=previous.get("options", {}), catalog_complete=False,
-                              current="", message="正在逐章节读取任务点")
+                              current="", active_chapter=previous.get('active_chapter',''),
+                              chapter_states=previous.get('chapter_states',{}),queue_scope=previous.get('queue_scope','all'),
+                              message="正在读取课程目录")
         self.loaded = bool(previous.get('chapters') or previous.get('tasks'))
         self.driver.start(url)
         self.loaded = True
@@ -315,6 +331,20 @@ class StudyManager:
         self.course_url = url
 
     def refresh(self):
+        if hasattr(self.driver,'scan_chapter'):
+            self.update(status='scanning',message='正在读取课程目录，不预先遍历全部章节任务',
+                        read_progress={'phase':'catalogue','scope':'catalogue','completed':0,'total':1,'active':True})
+            chapters,complete=self.driver.catalogue()
+            ids={chapter['id'] for chapter in chapters}
+            cached=[task for task in self.state['tasks'] if task['chapter_id'] in ids]
+            self.update(chapters=chapters,tasks=cached,lazy_loading=True,directory_complete=complete,
+                        chapter_states={chapter['id']:'unseen' for chapter in chapters},catalog_complete=False,
+                        status='ready',current='',message='课程目录已就绪；设置后点击开始，任务将边学边识别',
+                        read_progress={'phase':'done','scope':'catalogue','completed':1,'total':1,'active':False,'chapter_count':len(chapters)})
+            self.loaded=True
+            self.restored_from_cache=False
+            self.log('课程目录已读取，尚未遍历任务；可直接设置并开始学习')
+            return
         self.update(status="scanning", message="目录中的每个学习步骤都会单独读取；不会仅按章节统计完成",
                     read_progress={"phase":"catalogue","completed":0,"total":None,"active":True,"chapter":"正在定位目录"})
         previous = {task["id"]: task for task in self.state["tasks"]}
@@ -336,6 +366,53 @@ class StudyManager:
                     message="已读取任务点" if complete else "目录完整性尚未得到平台明确确认；仅展示已发现任务，不会报告课程全部完成")
         self.log("课程读取完成；发现 " + str(sum(task.get("is_task_point", True) for task in tasks)) + " 个任务点")
         self.restored_from_cache = False
+
+    def discover_chapter(self, chapter):
+        states=dict(self.state.get('chapter_states',{}));states[chapter['id']]='loading'
+        self.update(chapter_states=states,active_chapter=chapter['id'],current='识别章节：'+chapter['title'])
+        fresh,complete=self.driver.scan_chapter(self.state['course_id'],chapter)
+        self.checkpoint()
+        old={task['id']:task for task in self.state['tasks'] if task['chapter_id']==chapter['id']}
+        for task in fresh:
+            previous=old.get(task['id'],{})
+            for key in ('attempts','submission','action_finished','discussion_draft','auto_discussion','discussion_state'):
+                if key in previous:task[key]=previous[key]
+            if task['platform']=='unknown' and not task.get('reason'):
+                task['reason']='平台状态未知，等待实际页面核验'
+        retained=[task for task in self.state['tasks'] if task['chapter_id']!=chapter['id']]
+        order={item['id']:index for index,item in enumerate(self.state['chapters'])}
+        merged=sorted(retained+fresh,key=lambda task:order.get(task['chapter_id'],len(order)))
+        states[chapter['id']]='ready' if complete else 'partial'
+        all_known=bool(self.state['chapters']) and all(states.get(c['id'])=='ready' for c in self.state['chapters'])
+        self.update(tasks=merged,chapter_states=states,catalog_complete=bool(self.state.get('directory_complete')) and all_known)
+        self.log('已识别当前章节的 '+str(sum(t.get('is_task_point',True) for t in fresh))+' 个任务点')
+        return fresh
+
+    def learning_tasks(self, fallback, selected, resume):
+        if not self.state.get('lazy_loading'):
+            yield from fallback
+            return
+        chapters=list(self.state['chapters'])
+        selected_ids=set(selected or [])
+        if selected_ids:
+            wanted={t['chapter_id'] for t in self.state['tasks'] if t['id'] in selected_ids}
+            chapters=[chapter for chapter in chapters if chapter['id'] in wanted]
+        elif resume and self.state.get('active_chapter'):
+            ids=[chapter['id'] for chapter in chapters]
+            if self.state['active_chapter'] in ids:chapters=chapters[ids.index(self.state['active_chapter']):]
+        for chapter in chapters:
+            self.checkpoint()
+            cached=[t for t in self.state['tasks'] if t['chapter_id']==chapter['id']]
+            # Finished chapters need no navigation on resume; partial/paused chapters are reread.
+            if self.state.get('chapter_states',{}).get(chapter['id'])=='ready' and cached and all(((t.get('reference_only') or t.get('verified')) and not (t['kind']=='discussion' and t.get('auto_discussion') and t.get('discussion_state')!='published')) or (t['kind']=='discussion' and not t.get('is_task_point',True) and not t.get('auto_discussion')) for t in cached):
+                continue
+            requested_here=selected_ids.intersection(t['id'] for t in cached)
+            fresh=self.discover_chapter(chapter)
+            if selected_ids and not requested_here.issubset({t['id'] for t in fresh}):
+                raise StudyError('选中任务在当前章节已变化，请查看新识别的任务后再选择')
+            for task in fresh:
+                if not selected_ids or task['id'] in selected_ids:
+                    yield task
 
     def reset_submission(self, payload):
         task = next(item for item in self.state["tasks"] if item["id"] == payload["task_id"])
@@ -369,6 +446,7 @@ class StudyManager:
     def run(self, action, payload):
         options = self.execution_options(payload)
         selected = payload.get("task_ids") or (self.state.get("selection") if action == "resume" else None)
+        if action=='resume' and self.state.get('lazy_loading') and self.state.get('queue_scope')=='all':selected=None
         if selected and set(selected) - {task["id"] for task in self.state["tasks"]}:
             raise StudyError("选择中含已失效的任务，请刷新目录后重新选择")
         if action == "retry":
@@ -379,9 +457,12 @@ class StudyManager:
         tasks = [task for task in tasks if not (task.get("verified") and task["platform"] == "done" and task["status"] == "done") or (task['kind']=='discussion' and task.get('auto_discussion') and task.get('discussion_state')!='published')]
         tasks = [task for task in tasks if not (task['kind']=='discussion' and not task.get('is_task_point',True) and task.get('discussion_state')=='published')]
         self.driver.show_window()
-        self.update(status="running", options=options, selection=[task["id"] for task in tasks], message="")
-        for task in tasks:
+        self.update(status="running", options=options, selection=list(selected) if selected else [task["id"] for task in tasks],
+                    queue_scope='selected' if selected else 'all',message="")
+        for task in self.learning_tasks(tasks,selected,action=='resume'):
             self.checkpoint()
+            if task.get('verified') and task['platform']=='done' and task['status']=='done' and not (task['kind']=='discussion' and task.get('auto_discussion') and task.get('discussion_state')!='published'):
+                continue
             if task.get('reference_only'):
                 self.update(task,status='reference')
                 continue
