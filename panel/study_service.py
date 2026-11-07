@@ -575,16 +575,24 @@ class StudyManager:
 
     def verify(self, task):
         self.update(task, status="verifying", reason="正在等待平台任务状态确认")
-        for delay in (1, 2, 4):
-            self.driver.wait(delay)
-            if self.driver.platform(task) == "done":
-                self.complete(task)
-                return True
-        self.driver.activate(task)
-        if self.driver.platform(task) == "done":
-            self.complete(task)
-            return True
-        self.update(task, status="verifying", reason="动作已结束，但平台尚未确认任务完成；不会重复播放或重复提交，请刷新核验")
+        # A refreshed card can initially retain its old state while its iframe
+        # loads. Observe both documents with a bounded backoff; never replay or
+        # resubmit the task to obtain a completion signal.
+        for reload in (False, True):
+            if reload:
+                self.log('当前页面尚未确认完成，重新进入当前任务并等待状态同步；不重复执行')
+                self.driver.activate(task)
+            for delay in (0, 1, 2, 4, 8):
+                self.checkpoint()
+                if delay:self.driver.wait(delay)
+                platform=self.driver.platform(task)
+                self.update(task,platform=platform)
+                if platform == "done":
+                    self.complete(task)
+                    return True
+                if platform == 'locked':
+                    raise StudyError('核验时任务被锁定，请先满足平台解锁要求')
+        self.update(task, status="verifying", reason="已等待当前页面并重新进入核验，平台仍未确认完成；保留待核验，不重复播放或提交，可稍后点击继续")
         return False
 
     def media(self, task, options):

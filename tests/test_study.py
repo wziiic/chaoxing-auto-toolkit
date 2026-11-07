@@ -304,6 +304,38 @@ def until(check, timeout=5):
 
 
 class QueueTests(unittest.TestCase):
+    def test_completion_sync_after_reentry_is_observed_without_repeating_action(self):
+        manager=self.make_manager(lambda prompt,config:{})
+        task=manager.state['tasks'][0];task.update(kind='text',action_finished=True)
+        manager.worker_epoch=manager.epoch
+        samples=iter(['todo']*6+['done'])
+        with patch.object(manager.driver,'platform',side_effect=lambda task:next(samples)) as platform,patch.object(manager.driver,'activate') as activate,patch.object(manager.driver,'wait') as wait:
+            self.assertTrue(manager.verify(task))
+        activate.assert_called_once_with(task)
+        self.assertEqual(platform.call_count,7)
+        self.assertEqual([call.args[0] for call in wait.call_args_list],[1,2,4,8,1])
+        self.assertTrue(task['verified'])
+        self.assertEqual(manager.driver.submit_count,0)
+        self.assertEqual(manager.driver.play_count,0)
+
+    def test_unconfirmed_completion_has_bounded_wait_and_only_one_reentry(self):
+        manager=self.make_manager(lambda prompt,config:{})
+        task=manager.state['tasks'][0];manager.worker_epoch=manager.epoch
+        with patch.object(manager.driver,'platform',return_value='todo'),patch.object(manager.driver,'activate') as activate,patch.object(manager.driver,'wait') as wait:
+            self.assertFalse(manager.verify(task))
+        activate.assert_called_once_with(task)
+        self.assertEqual(sum(call.args[0] for call in wait.call_args_list),30)
+        self.assertEqual(task['status'],'verifying')
+        self.assertFalse(task['verified'])
+
+    def test_pause_cancels_post_reentry_completion_polling(self):
+        manager=self.make_manager(lambda prompt,config:{})
+        task=manager.state['tasks'][0];manager.worker_epoch=manager.epoch
+        def reenter(task):manager.epoch+=1
+        with patch.object(manager.driver,'platform',return_value='todo'),patch.object(manager.driver,'activate',side_effect=reenter),patch.object(manager.driver,'wait'):
+            with self.assertRaises(Interrupted):manager.verify(task)
+        self.assertFalse(task['verified'])
+
     def test_cached_unknown_image_reference_continues_to_next_task(self):
         manager=self.make_manager(lambda prompt,config:{})
         first=manager.state['tasks'][0];first.update(kind='unknown',platform='unknown')
