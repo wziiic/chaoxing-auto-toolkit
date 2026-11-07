@@ -371,6 +371,15 @@ class StudyManager:
         self.update(status="running", options=options, selection=[task["id"] for task in tasks], message="")
         for task in tasks:
             self.checkpoint()
+            if task.get('reference_only'):
+                self.update(task,status='reference')
+                continue
+            if not task.get('is_task_point',True) and task['kind']=='unknown' and not task.get('local_id') and not task.get('step') and task['platform']!='locked':
+                self.update(current=task['id'])
+                if self.driver.inspect_reference(task):
+                    self.update(task,kind='text',reference_only=True,platform='not_applicable',status='reference',reason='平台目录已通过，此页为无附件任务的文字说明，不计入任务点')
+                    self.log('已确认当前为无任务点说明页，继续后续任务')
+                    continue
             optional_discussion=task['kind']=='discussion' and not task.get('is_task_point',True) and task.get('auto_discussion')
             if (not task.get("is_task_point", True) and not optional_discussion) or task["platform"] == "locked":
                 self.update(task, status="manual", reason=task["reason"] or "任务锁定或尚未识别")

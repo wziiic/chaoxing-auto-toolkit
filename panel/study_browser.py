@@ -224,6 +224,18 @@ class CourseBrowser:
         complete = complete and not failures and not any(data["missing_chapter_ids"] for frame, data in samples)
         return self.chapters, complete
 
+    @staticmethod
+    def reference_only(chapter_id, samples, failures):
+        if failures or any(data.get('tasks') or data.get('formal_exam') for frame,data in samples):
+            return False
+        completed = any(chapter.get('completed') for frame,data in samples
+                        for chapter in data.get('chapters',[]) if chapter['id']==chapter_id)
+        return completed and any(data.get('reference_content') for frame,data in samples)
+
+    def inspect_reference(self, task):
+        samples, failures = self.enter_chapter(task['chapter_id'])
+        return self.reference_only(task['chapter_id'],samples,failures)
+
     def chapter_url(self, chapter_id):
         parts = urlsplit(self.url)
         query = parse_qs(parts.query)
@@ -344,8 +356,11 @@ class CourseBrowser:
                 task_id = digest([course_id, chapter["id"], "unresolved"])
                 tasks[task_id] = self.task(task_id, chapter, "unknown", "unknown", "未发现带稳定任务标识的任务点，可能延迟加载、页面版本未支持或没有任务点；不计为完成")
                 tasks[task_id]["is_task_point"] = False
+                if all(self.reference_only(chapter['id'],sample,errors) for _,sample,errors in batches):
+                    tasks[task_id].update(kind='text',reference_only=True,platform='not_applicable',status='reference',reason='平台目录已通过，此页为无附件任务的文字说明，不计入任务点')
+                else:
+                    complete = False
                 self.locations[task_id] = (chapter["id"], None)
-                complete = False
             progress(index + 1, chapter)
         if len(chapters) > 300:
             complete = False

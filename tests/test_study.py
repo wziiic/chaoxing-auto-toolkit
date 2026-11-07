@@ -174,6 +174,29 @@ def until(check, timeout=5):
 
 
 class QueueTests(unittest.TestCase):
+    def test_cached_plain_text_reference_does_not_pause_before_next_task(self):
+        manager=self.make_manager(lambda prompt,config:{})
+        first=manager.state['tasks'][0]
+        second=copy.deepcopy(first);second.update(id='next-quiz')
+        first.update(kind='unknown',local_id=None,is_task_point=False,platform='unknown')
+        manager.state['tasks'].append(second)
+        with patch.object(manager.driver,'inspect_reference',create=True,return_value=True) as inspect:
+            manager.command('start',{'auto_fill':False})
+            until(lambda:manager.snapshot()['status']=='paused')
+        inspect.assert_called_once()
+        self.assertEqual(first['status'],'reference')
+        self.assertFalse(first['verified'])
+        self.assertEqual(manager.snapshot()['current'],'next-quiz')
+
+    def test_unresolved_chapter_still_pauses_when_reference_not_confirmed(self):
+        manager=self.make_manager(lambda prompt,config:{})
+        first=manager.state['tasks'][0]
+        first.update(kind='unknown',local_id=None,is_task_point=False,platform='unknown')
+        with patch.object(manager.driver,'inspect_reference',create=True,return_value=False):
+            manager.command('start')
+            until(lambda:manager.snapshot()['status']=='paused')
+        self.assertEqual(first['status'],'manual')
+
     def test_document_scrolls_before_completion_and_advances_once(self):
         manager=self.make_manager(lambda prompt,config:{})
         first=manager.state['tasks'][0]
@@ -434,6 +457,19 @@ class QueueTests(unittest.TestCase):
 
 
 class BrowserFixtureTests(unittest.TestCase):
+    def test_plain_text_reference_requires_empty_attachments_and_completed_catalog(self):
+        self.context.route('**/knowledge/cards',lambda route:route.fulfill(content_type='text/html',body='<p>Fixture course teaching objectives, without task attachments.</p><script>window.mArg={attachments:[]}</script>'))
+        self.page.locator('[data-study-task-id]').evaluate_all('nodes=>nodes.forEach(n=>n.remove())')
+        self.page.evaluate("""()=>{document.querySelector('[data-chapter-id="101"]').insertAdjacentHTML('beforeend','<span class="icon_Completed"></span>');const f=document.createElement('iframe');f.src='https://mooc1.chaoxing.com/knowledge/cards';document.body.append(f)}""")
+        self.page.frame_locator('iframe').locator('p').wait_for()
+        samples,failures=self.driver.snapshots()
+        self.assertTrue(self.driver.reference_only('101',samples,failures))
+        self.assertFalse(self.driver.reference_only('101',samples,1))
+        frame=next(f for f in self.page.frames if f.url.endswith('/knowledge/cards'))
+        frame.evaluate('window.mArg.attachments=[{jobid:"pending-job",type:"video"}]')
+        samples,failures=self.driver.snapshots()
+        self.assertFalse(self.driver.reference_only('101',samples,failures))
+
     @classmethod
     def setUpClass(cls):
         import lxt

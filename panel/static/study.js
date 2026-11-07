@@ -21,7 +21,7 @@
     if(active&&!tipTimer&&tipIndex===0)tipTimer=setTimeout(()=>{tipTimer=null;tipIndex=1;tips()},9000);
     if(!active){clearTimeout(tipTimer);tipTimer=null;}
   }
-  const statuses = {idle:'未读取',ready:'待执行',preparing:'准备中',scanning:'读取目录中',pending:'待执行',running:'执行中',waiting_model:'等待模型',verifying:'等待平台核验',paused:'已暂停',pausing:'正在暂停',stopping:'正在停止',stopped:'已停止',done:'已完成',failed:'失败',manual:'需人工处理',needs_attention:'本轮结束 / 待处理',todo:'未完成',locked:'锁定',unknown:'未知'};
+  const statuses = {reference:'说明内容',not_applicable:'非任务点',idle:'未读取',ready:'待执行',preparing:'准备中',scanning:'读取目录中',pending:'待执行',running:'执行中',waiting_model:'等待模型',verifying:'等待平台核验',paused:'已暂停',pausing:'正在暂停',stopping:'正在停止',stopped:'已停止',done:'已完成',failed:'失败',manual:'需人工处理',needs_attention:'本轮结束 / 待处理',todo:'未完成',locked:'锁定',unknown:'未知'};
   const kinds = {video:'视频',audio:'音频',text:'文本阅读',document:'文档 / 课件',quiz:'章节练习',embedded_quiz:'视频内嵌题',discussion:'讨论',unknown:'待识别'};
   const submissions = {'':'—',filled:'已填写',intent:'已记录提交意图',saved:'已保存',submitted:'已提交',graded:'已判分',verified:'平台已核验完成'};
   async function api(path, body) {
@@ -109,7 +109,7 @@
       const row=element('tr',undefined,'chapter');const cell=element('td',chapter.title||chapter.id);cell.colSpan=7;cell.style.paddingLeft=`${12+depth(chapter,next.chapters)*18}px`;row.append(cell);body.append(row);
       for(const item of next.tasks.filter(item=>item.chapter_id===chapter.id)){
         const row=element('tr'); const selection=element('td');const checkbox=element('input');checkbox.type='checkbox';checkbox.checked=selected.has(item.id);checkbox.setAttribute('aria-label','选择 '+item.title);checkbox.addEventListener('change',()=>{checkbox.checked?selected.add(item.id):selected.delete(item.id);saveSettings()});selection.append(checkbox);row.append(selection);
-        const title=element('td',item.title+(item.is_task_point===false?(item.kind==='discussion'?'（非必做讨论）':'（参考内容 / 待解析项）'):''),'task-name');
+        const title=element('td',item.title+(item.is_task_point===false?(item.reference_only?'（说明内容，非任务点）':item.kind==='discussion'?'（非必做讨论）':'（参考内容 / 待解析项）'):''),'task-name');
         if(item.requirement)title.append(element('small',item.requirement,'task-requirement'));row.append(title);
         row.append(element('td',(kinds[item.kind]||item.kind)+(item.has_popup?' · 含播放中弹题':'')));
         for(const value of [item.platform,item.status]){const cell=element('td');cell.append(element('span',statuses[value]||value,'pill '+value));row.append(cell);}
