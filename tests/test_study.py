@@ -12,7 +12,7 @@ from types import SimpleNamespace
 ROOT = Path(__file__).resolve().parents[1]
 sys.path[:0] = [str(ROOT), str(ROOT / "panel")]
 
-from study_core import CourseLock, Interrupted, StudyError, StudyStore, course_link, digest, normalize_answers, question_signature, redact
+from study_core import CourseLock, Interrupted, PlaybackPaused, StudyError, StudyStore, course_link, digest, normalize_answers, question_signature, redact
 from study_browser import CourseBrowser, DOM_SCRIPT, MEDIA_GUARD_SCRIPT
 from study_service import StudyManager
 
@@ -304,6 +304,35 @@ def until(check, timeout=5):
 
 
 class QueueTests(unittest.TestCase):
+    def test_visibility_pause_does_not_consume_retry_limit_or_restart(self):
+        manager=self.make_manager(lambda prompt,config:{})
+        task=manager.state['tasks'][0];task.update(kind='video',attempts=2)
+        paused={'current':12,'duration':100,'rate':1,'error':0,'ended':False,'paused':True,'ready':4,'hidden':True,'focused':False,'pause_reason':'hidden','playback_allowed':True}
+        with patch.object(manager.driver,'media_state',return_value=paused):
+            manager.command('start',{'manual_policy':'continue'})
+            until(lambda:manager.snapshot()['status']=='paused')
+        self.assertEqual(task['attempts'],2)
+        self.assertEqual(task['status'],'paused')
+        self.assertIn('隐藏',task['reason'])
+        self.assertEqual(manager.driver.play_count,1)
+        self.assertTrue(task['playback_diagnostic']['hidden'])
+
+    def test_transient_pause_rechecks_without_forcing_play(self):
+        manager=self.make_manager(lambda prompt,config:{})
+        task=manager.state['tasks'][0];task.update(kind='video');manager.worker_epoch=manager.epoch
+        state={'current':12,'duration':100,'rate':1,'error':0,'ended':False,'paused':True,'ready':4}
+        with patch.object(manager.driver,'media_state',side_effect=[state,{**state,'paused':False},{**state,'paused':False,'ended':True}]),patch.object(manager,'verify',return_value=True):
+            manager.media(task,{'rate':1})
+        self.assertEqual(manager.driver.play_count,1)
+
+    def test_unknown_script_pause_stays_paused_without_automatic_replay(self):
+        manager=self.make_manager(lambda prompt,config:{})
+        task=manager.state['tasks'][0];task.update(kind='video');manager.worker_epoch=manager.epoch
+        state={'current':12,'duration':100,'rate':1,'error':0,'ended':False,'paused':True,'ready':4,'playback_allowed':True,'hidden':False,'focused':True}
+        with patch.object(manager.driver,'media_state',return_value=state):
+            with self.assertRaisesRegex(PlaybackPaused,'触发原因'):manager.media(task,{'rate':1})
+        self.assertEqual(manager.driver.play_count,1)
+
     def test_completion_sync_after_reentry_is_observed_without_repeating_action(self):
         manager=self.make_manager(lambda prompt,config:{})
         task=manager.state['tasks'][0];task.update(kind='text',action_finished=True)

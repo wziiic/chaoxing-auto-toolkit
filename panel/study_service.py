@@ -6,7 +6,7 @@ from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
 from study_browser import CourseBrowser
-from study_core import CourseLock, Interrupted, StudyError, StudyStore, course_link, digest, normalize_answers, question_signature, redact, study_prompt
+from study_core import CourseLock, Interrupted, PlaybackPaused, StudyError, StudyStore, course_link, digest, normalize_answers, question_signature, redact, study_prompt
 
 
 class StudyManager:
@@ -41,6 +41,8 @@ class StudyManager:
                 self.state["status"] = "paused"
             self.state["message"] = "已保留上次课程、状态和设置，可直接开始或继续；执行前只核验当前任务"
             for task in self.state["tasks"]:
+                if task.get('kind') in ('video','audio') and task.get('status')=='manual' and task.get('reason','').startswith('播放器被暂停') and not task.get('playback_interrupted'):
+                    task.update(attempts=max(0,task.get('attempts',0)-1),playback_interrupted=True)
                 if task["status"] == "done" and task["platform"] == "done":
                     task["verified"] = True
                 if task["status"] in ("preparing", "running", "waiting_model"):
@@ -524,6 +526,11 @@ class StudyManager:
                             self.handle_discussion(task,task.get('discussion_draft',''),True)
                     else:
                         raise StudyError("此任务类型尚未支持自动执行，请打开原页面处理")
+                except PlaybackPaused as error:
+                    self.update(task,attempts=max(0,task['attempts']-1),status='paused',reason=redact(error),playback_interrupted=True)
+                    self.log('播放暂停：'+redact(error))
+                    self.update(status='paused',message=task['reason'])
+                    return
                 except StudyError as error:
                     self.update(task, status="manual", reason=redact(error))
                     self.log("任务需要人工处理：" + redact(error))
@@ -624,7 +631,22 @@ class StudyManager:
                 self.verify(task)
                 return
             if state["paused"]:
-                raise StudyError("播放器被暂停，可能是用户操作或页面限制；不会强制恢复，请确认后点击继续")
+                # A brief native transition may resolve itself. Do not call play
+                # here: user pauses, quiz dialogs and site restrictions stay in control.
+                self.driver.wait(.5)
+                if self.driver.popup(task):continue
+                state=self.driver.media_state(task)
+                if not state['paused'] or state['ended']:continue
+                reason=state.get('pause_reason','unknown')
+                self.update(task,playback_diagnostic={k:state.get(k) for k in ('hidden','focused','pause_reason','ready','error','rate','current','playback_allowed')})
+                self.log('播放器暂停诊断：'+str({'hidden':state.get('hidden'),'focused':state.get('focused'),'reason':reason,'ready':state['ready'],'error':state['error'],'rate':state['rate'],'current':round(state['current'],1)}))
+                if state.get('hidden') or reason=='hidden':
+                    raise PlaybackPaused('课程页面被隐藏或切换标签后暂停；此课要求窗口可见，请返回课程窗口并点击继续')
+                if reason=='user_control':
+                    raise PlaybackPaused('检测到播放器控件操作后暂停；保留当前位置，点击继续才恢复')
+                if state.get('playback_allowed') is False:
+                    raise PlaybackPaused('播放器节点已替换或播放授权已失效；请点击继续重新定位播放器')
+                raise PlaybackPaused('页面或播放器主动暂停，未发现可确定的触发原因；保留进度，点击继续恢复，观看时请保持课程窗口可见')
             if state["ready"] < 3:
                 buffering = buffering or time.monotonic()
                 if time.monotonic() - buffering > 45:

@@ -12,6 +12,11 @@ class StudyError(Exception):
     pass
 
 
+class PlaybackPaused(StudyError):
+    """An interrupted viewing session, rather than a failed task attempt."""
+    pass
+
+
 class Interrupted(Exception):
     pass
 

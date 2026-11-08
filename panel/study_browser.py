@@ -15,6 +15,22 @@ DOM_SCRIPT = Path(__file__).with_name("study_dom.js").read_text(encoding="utf-8"
 # Each new document starts with playback blocked, including dynamically inserted media.
 # No player functions are replaced; only an explicit task play grants permission.
 MEDIA_GUARD_SCRIPT = """(() => {
+    let lastControl = 0;
+    const controls = event => {
+        if (event.isTrusted && event.target?.closest?.('video,audio,.video-js')) lastControl = Date.now();
+    };
+    document.addEventListener('pointerdown', controls, true);
+    document.addEventListener('keydown', controls, true);
+    for (const type of ['pause','waiting','stalled','error','playing']) {
+        document.addEventListener(type, event => {
+            const media = event.target;
+            if (!media?.matches?.('video,audio')) return;
+            const reason = document.hidden ? 'hidden' : Date.now()-lastControl<1500 ? 'user_control' :
+                media.getAttribute('data-lxt-playback-allowed')!=='true' ? 'not_authorized' : 'unknown';
+            // Passive, bounded diagnostics only. No event or visibility is changed.
+            if (type==='pause') media.setAttribute('data-lxt-last-pause',JSON.stringify({reason,time:Date.now(),focus:document.hasFocus()}));
+        }, true);
+    }
     const guard = event => {
         const media = event.target;
         if (media?.matches?.('video,audio') && media.getAttribute('data-lxt-playback-allowed') !== 'true') media.pause();
@@ -468,7 +484,12 @@ class CourseBrowser:
     def media_state(self, task):
         element = self.media(task)
         try:
-            return element.evaluate("element => ({current:element.currentTime||0,duration:Number.isFinite(element.duration)?element.duration:0,paused:element.paused,ended:element.ended,ready:element.readyState,error:element.error?.code||0,rate:element.playbackRate,connected:element.isConnected,speed_rejected:/不支持倍速|倍速.*(?:不计|禁止|无效)/.test(element.ownerDocument.body?.innerText||'')})")
+            return element.evaluate("""element => {
+                let pause={};try{pause=JSON.parse(element.getAttribute('data-lxt-last-pause')||'{}')}catch{}
+                return {current:element.currentTime||0,duration:Number.isFinite(element.duration)?element.duration:0,paused:element.paused,ended:element.ended,ready:element.readyState,error:element.error?.code||0,rate:element.playbackRate,connected:element.isConnected,
+                    hidden:element.ownerDocument.hidden,focused:element.ownerDocument.hasFocus(),pause_reason:Date.now()-(pause.time||0)<10000?pause.reason:'unknown',
+                    playback_allowed:element.getAttribute('data-lxt-playback-allowed')==='true',speed_rejected:/不支持倍速|倍速.*(?:不计|禁止|无效)/.test(element.ownerDocument.body?.innerText||'')};
+            }""")
         finally:
             element.dispose()
 
