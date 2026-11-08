@@ -95,7 +95,10 @@
     return graphIds.has(String(data.knowledgeGraphId||''))&&!data._jobid&&!data.jobid&&![true,'true',1,'1'].includes(data.isJob)&&!e.querySelector('.ans-job-icon')&&!e.getAttribute('jobid')&&!e.getAttribute('data-jobid');
   });
   const emptyAudition=e=>e.id==='auditionAudio'&&!e.getAttribute('src')&&!e.currentSrc&&!e.querySelector('source')&&getComputedStyle(e).display==='none';
-  const referenceContent=/\/knowledge\/cards$/.test(location.pathname)&&Array.isArray(window.mArg?.attachments)&&taskData.length===0&&questions.length===0&&!document.querySelector('video')&&!Array.from(document.querySelectorAll('audio')).some(e=>!emptyAudition(e))&&body.trim().length>=10&&document.readyState!=='loading'&&
+  const emptyMarker=Array.from(document.querySelectorAll('dd')).some(e=>visible(e)&&text(e)==='暂无内容');
+  const contentLoading=!!document.querySelector('[aria-busy="true"],.loading,[data-lazy="true"]');
+  const explicitEmpty=document.readyState==='complete'&&body.trim()==='暂无内容'&&emptyMarker&&!contentLoading;
+  const referenceContent=/\/knowledge\/cards$/.test(location.pathname)&&Array.isArray(window.mArg?.attachments)&&taskData.length===0&&questions.length===0&&!document.querySelector('video')&&!Array.from(document.querySelectorAll('audio')).some(e=>!emptyAudition(e))&&!contentLoading&&((!emptyMarker&&body.trim().length>=10)||explicitEmpty)&&document.readyState!=='loading'&&
     ((attachments.length===0&&cards.length===0&&!document.querySelector('iframe'))||(graphCards&&Array.from(document.querySelectorAll('iframe')).every(e=>e.closest('.ans-attach-ct'))));
 
   const total = tree?.getAttribute('data-total-chapters');

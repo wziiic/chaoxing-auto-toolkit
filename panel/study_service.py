@@ -475,7 +475,7 @@ class StudyManager:
             if not task.get('is_task_point',True) and task['kind']=='unknown' and not task.get('local_id') and not task.get('step') and task['platform']!='locked':
                 self.update(current=task['id'])
                 if self.driver.inspect_reference(task):
-                    self.update(task,kind='text',reference_only=True,platform='not_applicable',status='reference',reason='平台目录已通过，此页为无附件任务的文字说明，不计入任务点')
+                    self.update(task,kind='text',reference_only=True,platform='not_applicable',status='reference',reason='平台目录已通过，此页为无任务点说明或明确空内容页，不计入任务点')
                     self.log('已确认当前为无任务点说明页，继续后续任务')
                     continue
             if not task.get('is_task_point',True) and task['kind'] in ('video','audio','document') and task['platform']!='locked':

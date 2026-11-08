@@ -407,7 +407,7 @@ class CourseBrowser:
                 tasks[task_id] = self.task(task_id, chapter, "unknown", "unknown", "未发现带稳定任务标识的任务点，可能延迟加载、页面版本未支持或没有任务点；不计为完成")
                 tasks[task_id]["is_task_point"] = False
                 if all(self.reference_only(chapter['id'],sample,errors) for _,sample,errors in batches):
-                    tasks[task_id].update(kind='text',reference_only=True,platform='not_applicable',status='reference',reason='平台目录已通过，此页为无附件任务的文字说明，不计入任务点')
+                    tasks[task_id].update(kind='text',reference_only=True,platform='not_applicable',status='reference',reason='平台目录已通过，此页为无任务点说明或明确空内容页，不计入任务点')
                 else:
                     complete = False
                 self.locations[task_id] = (chapter["id"], None)

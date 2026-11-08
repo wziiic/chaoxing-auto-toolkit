@@ -731,6 +731,33 @@ class QueueTests(unittest.TestCase):
 
 
 class BrowserFixtureTests(unittest.TestCase):
+    def empty_card(self, body='<dl><dd>暂无内容</dd></dl>'):
+        self.context.route('**/knowledge/cards',lambda route:route.fulfill(content_type='text/html',body='<script>window.mArg={attachments:[]}</script>'+body))
+        self.page.locator('[data-study-task-id]').evaluate_all('nodes=>nodes.forEach(n=>n.remove())')
+        self.page.evaluate('''()=>{document.querySelector('[data-chapter-id="101"]').insertAdjacentHTML('beforeend','<span class="icon_Completed"></span>');const f=document.createElement('iframe');f.src='https://mooc1.chaoxing.com/knowledge/cards';document.body.append(f)}''')
+        self.page.frame_locator('iframe').locator('dd').wait_for()
+        return next(f for f in self.page.frames if f.url.endswith('/knowledge/cards'))
+
+    def test_explicit_empty_card_requires_completed_directory_and_empty_attachments(self):
+        frame=self.empty_card()
+        samples,failures=self.driver.snapshots()
+        self.assertTrue(self.driver.reference_only('101',samples,failures))
+        self.assertFalse(self.driver.reference_only('101',samples,1))
+        self.page.locator('.icon_Completed').evaluate('e=>e.remove()')
+        samples,failures=self.driver.snapshots()
+        self.assertFalse(self.driver.reference_only('101',samples,failures))
+        self.page.evaluate('''document.querySelector('[data-chapter-id="101"]').insertAdjacentHTML('beforeend','<span class="icon_Completed"></span>')''')
+        frame.evaluate("window.mArg.attachments=[{type:'unknown',property:{objectid:'unresolved'}}]")
+        samples,failures=self.driver.snapshots()
+        self.assertFalse(self.driver.reference_only('101',samples,failures))
+
+    def test_empty_marker_does_not_hide_loading_errors_or_unresolved_frames(self):
+        frame=self.empty_card()
+        for content in ['<dl><dd>暂无内容</dd></dl><span aria-busy="true"></span>','<dl><dd>暂无内容</dd></dl><p>加载失败，请重试</p>','<dl><dd>暂无内容</dd></dl><iframe src="about:blank"></iframe>','<dl><dd>暂无内容</dd></dl><video></video>','<dl><dd>短文字</dd></dl>']:
+            frame.evaluate('html=>document.body.innerHTML=html',content)
+            samples,failures=self.driver.snapshots()
+            self.assertFalse(self.driver.reference_only('101',samples,failures),content)
+
     def test_real_pointer_leave_is_observed_without_faking_focus_or_events(self):
         task=self.task('video-one')
         self.page.evaluate("document.documentElement.removeAttribute('data-lxt-pointer-left-at')")
