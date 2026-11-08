@@ -15,6 +15,12 @@ DOM_SCRIPT = Path(__file__).with_name("study_dom.js").read_text(encoding="utf-8"
 # Each new document starts with playback blocked, including dynamically inserted media.
 # No player functions are replaced; only an explicit task play grants permission.
 MEDIA_GUARD_SCRIPT = """(() => {
+    // Some courses pause on a top-document mouseout even while hidden=false
+    // and hasFocus()=true. Observe the real event without cancelling it.
+    if (window===window.top) document.addEventListener('mouseout', event => {
+        if (event.isTrusted && !event.relatedTarget && document.documentElement)
+            document.documentElement.setAttribute('data-lxt-pointer-left-at',String(Date.now()));
+    },true);
     let lastControl = 0;
     const controls = event => {
         if (event.isTrusted && event.target?.closest?.('video,audio,.video-js')) lastControl = Date.now();
@@ -484,12 +490,17 @@ class CourseBrowser:
     def media_state(self, task):
         element = self.media(task)
         try:
-            return element.evaluate("""element => {
+            state=element.evaluate("""element => {
                 let pause={};try{pause=JSON.parse(element.getAttribute('data-lxt-last-pause')||'{}')}catch{}
                 return {current:element.currentTime||0,duration:Number.isFinite(element.duration)?element.duration:0,paused:element.paused,ended:element.ended,ready:element.readyState,error:element.error?.code||0,rate:element.playbackRate,connected:element.isConnected,
                     hidden:element.ownerDocument.hidden,focused:element.ownerDocument.hasFocus(),pause_reason:Date.now()-(pause.time||0)<10000?pause.reason:'unknown',
                     playback_allowed:element.getAttribute('data-lxt-playback-allowed')==='true',speed_rejected:/不支持倍速|倍速.*(?:不计|禁止|无效)/.test(element.ownerDocument.body?.innerText||'')};
             }""")
+            context=self.page.evaluate("""()=>({pointer_left_recent:Date.now()-Number(document.documentElement?.getAttribute('data-lxt-pointer-left-at')||0)<5000,job_limit:window.hasJobLimit===true,time_limit:window.videoTimeLimit===true})""")
+            state.update(context)
+            if state['paused'] and state.get('pause_reason')=='unknown' and context['pointer_left_recent']:
+                state['pause_reason']='pointer_left_window'
+            return state
         finally:
             element.dispose()
 

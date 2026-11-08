@@ -646,10 +646,16 @@ class StudyManager:
                 state=self.driver.media_state(task)
                 if not state['paused'] or state['ended']:continue
                 reason=state.get('pause_reason','unknown')
-                self.update(task,playback_diagnostic={k:state.get(k) for k in ('hidden','focused','pause_reason','ready','error','rate','current','playback_allowed')})
+                self.update(task,playback_diagnostic={k:state.get(k) for k in ('hidden','focused','pause_reason','ready','error','rate','current','playback_allowed','pointer_left_recent','job_limit','time_limit')})
                 self.log('播放器暂停诊断：'+str({'hidden':state.get('hidden'),'focused':state.get('focused'),'reason':reason,'ready':state['ready'],'error':state['error'],'rate':state['rate'],'current':round(state['current'],1)}))
                 if state.get('hidden') or reason=='hidden':
                     raise PlaybackPaused('课程页面被隐藏或切换标签后暂停；此课要求窗口可见，请返回课程窗口并点击继续')
+                if state.get('job_limit'):
+                    raise PlaybackPaused('平台已限制当前可学习的任务数量；请按平台提示处理后继续，不会循环重播')
+                if state.get('time_limit'):
+                    raise PlaybackPaused('平台已达到允许的学习时长上限；请按平台提示处理后继续，不会循环重播')
+                if reason=='pointer_left_window':
+                    raise PlaybackPaused('鼠标离开课程窗口后触发平台暂停，页面即使仍有焦点也会发生；请返回课程窗口并点击继续，此课无法保证后台播放')
                 if reason=='user_control':
                     raise PlaybackPaused('检测到播放器控件操作后暂停；保留当前位置，点击继续才恢复')
                 if state.get('playback_allowed') is False:

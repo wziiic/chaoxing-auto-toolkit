@@ -320,6 +320,16 @@ def until(check, timeout=5):
 
 
 class QueueTests(unittest.TestCase):
+    def test_pointer_leave_pause_and_platform_limits_are_specific_and_do_not_replay(self):
+        for extra,expected in [({'pause_reason':'pointer_left_window'},'鼠标离开'),({'job_limit':True},'任务数量'),({'time_limit':True},'学习时长')]:
+            with self.subTest(extra=extra):
+                manager=self.make_manager(lambda prompt,config:{})
+                task=manager.state['tasks'][0];task.update(kind='video');manager.worker_epoch=manager.epoch
+                state={'current':12,'duration':100,'rate':1,'error':0,'ended':False,'paused':True,'ready':4,'playback_allowed':True,'hidden':False,'focused':True,**extra}
+                with patch.object(manager.driver,'media_state',return_value=state):
+                    with self.assertRaisesRegex(PlaybackPaused,expected):manager.media(task,{'rate':1})
+                self.assertEqual(manager.driver.play_count,1)
+
     def test_link_click_then_verify_without_reading_or_duplicate_click(self):
         manager=self.make_manager(lambda prompt,config:{})
         task=manager.state['tasks'][0];task.update(kind='link')
@@ -721,6 +731,17 @@ class QueueTests(unittest.TestCase):
 
 
 class BrowserFixtureTests(unittest.TestCase):
+    def test_real_pointer_leave_is_observed_without_faking_focus_or_events(self):
+        task=self.task('video-one')
+        self.page.evaluate("document.documentElement.removeAttribute('data-lxt-pointer-left-at')")
+        self.page.evaluate("document.dispatchEvent(new MouseEvent('mouseout',{bubbles:true,relatedTarget:null}))")
+        self.assertFalse(self.driver.media_state(task)['pointer_left_recent'])
+        self.page.mouse.move(300,150)
+        self.page.mouse.move(-20,-20)
+        state=self.driver.media_state(task)
+        self.assertTrue(state['pointer_left_recent'])
+        self.assertEqual(state['pause_reason'],'pointer_left_window')
+
     def prepare_link(self):
         self.context.route('**/ananas/modules/zt/hyperlink/index-pc.html',lambda r:r.fulfill(content_type='text/html',body='''<a id="hyperlink" href="https://example.test/article" target="_blank">Read article</a><script>document.querySelector('a').onclick=()=>parent.document.querySelector('[data-link-card]').classList.add('ans-job-finished')</script>'''))
         self.context.route('https://example.test/article',lambda r:r.fulfill(content_type='text/html',body='<p>Article fixture</p>'))
