@@ -29,6 +29,7 @@
   };
   const kindOf = value => {
     const valueText = String(value || '').toLowerCase();
+    if (/hyperlink|超链接/.test(valueText)) return 'link';
     if (/videoquiz|video-question|弹题|内嵌题/.test(valueText)) return 'embedded_quiz';
     if (/video|视频/.test(valueText)) return 'video';
     if (/audio|音频/.test(valueText)) return 'audio';

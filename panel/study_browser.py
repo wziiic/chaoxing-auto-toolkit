@@ -755,6 +755,43 @@ class CourseBrowser:
                     root.dispose()
         return moved
 
+    def open_link(self, task, before_open):
+        frames=self.scoped_frames(task)
+        popup=None
+        previous_pages=set(self.context.pages)
+        try:
+            candidates=[]
+            for frame,root in frames:
+                if not re.fullmatch(r'/ananas/modules/(?:zt/)?hyperlink/index(?:-pc)?\.html',urlsplit(frame.url).path):continue
+                links=frame.locator('a#hyperlink')
+                if links.count()==1 and links.is_visible():candidates.append(links)
+            if len(candidates)!=1:
+                raise StudyError('无法唯一定位本任务的原生链接入口，请在原页面打开链接')
+            link=candidates[0]
+            href=link.get_attribute('href') or ''
+            from urllib.parse import urljoin
+            if urlsplit(urljoin(link.evaluate('e=>e.ownerDocument.location.href'),href)).scheme not in ('http','https'):
+                raise StudyError('链接入口不是可正常打开的网页地址，请人工检查')
+            if link.get_attribute('target')!='_blank':
+                raise StudyError('此链接会替换当前课程页面，暂需人工打开以保留队列上下文')
+            before_open()
+            # Use the actual card click so the site's own reading handler runs.
+            with self.context.expect_page(timeout=6000) as opened:
+                self.perform(lambda:link.click(timeout=4000))
+            popup=opened.value
+            self.checkpoint()
+            popup.wait_for_load_state('domcontentloaded',timeout=15000)
+            self.checkpoint()
+            if urlsplit(popup.url).scheme not in ('http','https'):
+                raise StudyError('链接未能打开正常网页，请在原页面核查')
+            self.log('已通过任务卡片打开链接；继续核验课程任务状态')
+        finally:
+            for opened_page in set(self.context.pages)-previous_pages:
+                if not opened_page.is_closed():opened_page.close()
+            if self.page and not self.page.is_closed():self.page.bring_to_front()
+            for frame,root in frames:
+                if root:root.dispose()
+
     def read_step(self, task, elapsed=0, remaining=600):
         frames = self.scoped_frames(task)
         try:

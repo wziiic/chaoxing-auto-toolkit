@@ -202,6 +202,22 @@ class LazyFakeBrowser(FakeBrowser):
 
 
 class LazyQueueTests(unittest.TestCase):
+    def test_legacy_scrolled_link_can_execute_its_missing_click_once(self):
+        manager=self.manager();chapter=manager.state['chapters'][0]
+        old=manager.driver.chapter_tasks(chapter)[0]
+        old.update(kind='text',action_finished=True,status='verifying')
+        manager.state['tasks']=[old]
+        fresh={**old,'kind':'link','action_finished':False}
+        manager.worker_epoch=manager.epoch
+        with patch.object(manager.driver,'scan_chapter',return_value=([fresh],True)):
+            task=manager.discover_chapter(chapter)[0]
+        self.assertFalse(task['action_finished'])
+        task.update(action_finished=True,link_state='intent')
+        with patch.object(manager.driver,'scan_chapter',return_value=([{**fresh,'action_finished':False}],True)):
+            again=manager.discover_chapter(chapter)[0]
+        self.assertTrue(again['action_finished'])
+        self.assertEqual(again['link_state'],'intent')
+
     def manager(self, model=lambda prompt,config:{'q1':'B'}):
         folder=tempfile.TemporaryDirectory();self.addCleanup(folder.cleanup)
         manager=StudyManager(folder.name,lambda:{},model,browser_factory=LazyFakeBrowser)
@@ -304,6 +320,21 @@ def until(check, timeout=5):
 
 
 class QueueTests(unittest.TestCase):
+    def test_link_click_then_verify_without_reading_or_duplicate_click(self):
+        manager=self.make_manager(lambda prompt,config:{})
+        task=manager.state['tasks'][0];task.update(kind='link')
+        def open_link(task,before_open):before_open();manager.driver.complete=True
+        with patch.object(manager.driver,'open_link',create=True,side_effect=open_link) as click:
+            manager.command('start')
+            until(lambda:manager.snapshot()['status']=='needs_attention')
+            self.assertEqual(click.call_count,1)
+            manager.command('resume')
+            until(lambda:manager.snapshot()['status']=='needs_attention')
+            self.assertEqual(click.call_count,1)
+        self.assertTrue(task['verified'])
+        self.assertEqual(task['link_state'],'opened')
+        self.assertEqual(manager.driver.submit_count,0)
+
     def test_visibility_pause_does_not_consume_retry_limit_or_restart(self):
         manager=self.make_manager(lambda prompt,config:{})
         task=manager.state['tasks'][0];task.update(kind='video',attempts=2)
@@ -690,6 +721,30 @@ class QueueTests(unittest.TestCase):
 
 
 class BrowserFixtureTests(unittest.TestCase):
+    def prepare_link(self):
+        self.context.route('**/ananas/modules/zt/hyperlink/index-pc.html',lambda r:r.fulfill(content_type='text/html',body='''<a id="hyperlink" href="https://example.test/article" target="_blank">Read article</a><script>document.querySelector('a').onclick=()=>parent.document.querySelector('[data-link-card]').classList.add('ans-job-finished')</script>'''))
+        self.context.route('https://example.test/article',lambda r:r.fulfill(content_type='text/html',body='<p>Article fixture</p>'))
+        self.page.evaluate('''()=>{window.mArg={attachments:[{type:'hyperlink',job:true,jobid:'link-task',property:{type:'text',_jobid:'link-task'}}]};const card=document.createElement('div');card.className='ans-attach-ct';card.setAttribute('data-link-card','true');const f=document.createElement('iframe');f.setAttribute('data',JSON.stringify({_jobid:'link-task',type:'text'}));f.src='/ananas/modules/zt/hyperlink/index-pc.html';card.append(f);document.body.append(card)}''')
+        self.page.frame_locator('iframe[src*="hyperlink"]').locator('#hyperlink').wait_for()
+        return self.task('link-task')
+
+    def test_native_link_click_opens_page_and_platform_confirms(self):
+        task=self.prepare_link();intent=[]
+        raw=next(t for t in self.page.evaluate(DOM_SCRIPT)['tasks'] if t['local_id']=='link-task')
+        self.assertEqual(raw['kind'],'link')
+        self.driver.open_link(task,lambda:intent.append(True))
+        self.assertEqual(intent,[True])
+        self.assertEqual(self.driver.platform(task),'done')
+        self.assertEqual(len(self.context.pages),1)
+
+    def test_link_cancel_or_invalid_destination_does_not_click(self):
+        task=self.prepare_link()
+        with self.assertRaises(Interrupted):self.driver.open_link(task,lambda:(_ for _ in ()).throw(Interrupted()))
+        self.assertNotEqual(self.driver.platform(task),'done')
+        self.page.frame_locator('iframe[src*="hyperlink"]').locator('#hyperlink').evaluate('e=>e.href="javascript:void(0)"')
+        with self.assertRaisesRegex(StudyError,'网页地址'):self.driver.open_link(task,lambda:None)
+        self.assertEqual(len(self.context.pages),1)
+
     def test_single_chapter_scan_does_not_read_other_chapters(self):
         chapter={'id':'101','title':'Fixture chapter','parent_id':'','locked':False}
         with patch.object(self.driver,'catalogue',side_effect=AssertionError('must not reload full directory')),patch.object(self.driver,'enter_chapter',wraps=self.driver.enter_chapter) as enter:

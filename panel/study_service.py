@@ -377,8 +377,12 @@ class StudyManager:
         old={task['id']:task for task in self.state['tasks'] if task['chapter_id']==chapter['id']}
         for task in fresh:
             previous=old.get(task['id'],{})
-            for key in ('attempts','submission','action_finished','discussion_draft','auto_discussion','discussion_state'):
+            for key in ('attempts','submission','action_finished','link_state','discussion_draft','auto_discussion','discussion_state'):
                 if key in previous:task[key]=previous[key]
+            if task['kind']=='link' and previous.get('kind')=='text' and not previous.get('link_state'):
+                # Older versions only scrolled this card; the required click
+                # was never performed. Allow that missing action exactly once.
+                task['action_finished']=False
             if task['platform']=='unknown' and not task.get('reason'):
                 task['reason']='平台状态未知，等待实际页面核验'
         retained=[task for task in self.state['tasks'] if task['chapter_id']!=chapter['id']]
@@ -517,6 +521,10 @@ class StudyManager:
                         self.answer(task, options)
                     elif task["kind"] in ("text", "document"):
                         self.read(task)
+                    elif task['kind']=='link':
+                        self.driver.open_link(task,lambda:self.update(task,link_state='intent',action_finished=True))
+                        self.update(task,link_state='opened')
+                        self.verify(task)
                     elif task['kind']=='discussion':
                         if not task.get('auto_discussion'):
                             raise StudyError('请在本行编辑讨论正文，并明确开启队列自动发布，或手动填写发布')
