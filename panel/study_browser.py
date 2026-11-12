@@ -64,6 +64,7 @@ class CourseBrowser:
         self.last_diagnostic = 0
         self.action_lock = None
         self.headless = True
+        self.embedded_receipts = {}
 
     def perform(self, action):
         with self.action_lock if self.action_lock is not None else nullcontext():
@@ -551,7 +552,7 @@ class CourseBrowser:
         for frame, root in self.scoped_frames(task):
             try:
                 data = root.evaluate(DOM_SCRIPT) if root else frame.evaluate(DOM_SCRIPT)
-                if data["questions"]:
+                if data["questions"] or data.get('popup'):
                     return True
             finally:
                 if root:
@@ -627,7 +628,7 @@ class CourseBrowser:
                 for control, answer in zip(controls, answers[question["qid"]]):
                     self.checkpoint()
                     self.perform(lambda: control.fill(answer))
-            elif question.get("control_mode") == "choice":
+            elif question.get("control_mode") in ("choice",'video_choice'):
                 for option in question["options"]:
                     self.checkpoint()
                     _, current = self.questions(task)
@@ -701,6 +702,53 @@ class CourseBrowser:
         self.perform(lambda: confirm.click(timeout=4000))
         return True
 
+    def embedded_key(self, task, questions):
+        return task['id'], tuple(sorted(question_signature(q) for q in questions))
+
+    def embedded_feedback(self, task, questions):
+        receipt=self.embedded_receipts.get(self.embedded_key(task,questions))
+        if receipt:return receipt
+        expected=sorted(question_signature(q) for q in questions)
+        for frame,root in self.scoped_frames(task):
+            try:
+                data=root.evaluate(DOM_SCRIPT) if root else frame.evaluate(DOM_SCRIPT)
+                if sorted(question_signature(q) for q in data['questions'])==expected and data['feedback'] in ('submitted','graded','incorrect'):
+                    return data['feedback']
+            finally:
+                if root:root.dispose()
+        return ''
+
+    def continue_embedded(self, task, questions):
+        if self.embedded_feedback(task,questions) not in ('submitted','graded'):
+            raise StudyError('弹题尚无明确提交结果，不能点击继续')
+        expected=sorted(question_signature(q) for q in questions)
+        for frame,root in self.scoped_frames(task):
+            try:
+                data=root.evaluate(DOM_SCRIPT) if root else frame.evaluate(DOM_SCRIPT)
+                if not data['questions']:continue
+                if sorted(question_signature(q) for q in data['questions'])!=expected:
+                    return  # A different popup will be handled before playback.
+                if any(q.get('native_video') for q in questions):
+                    buttons=[b for b in (root or frame).query_selector_all('.ans-videoquiz #videoquiz-continue') if b.is_visible()]
+                    try:
+                        if len(buttons)==1 and buttons[0].is_enabled():
+                            self.perform(lambda:buttons[0].click(timeout=4000))
+                    finally:
+                        for button in buttons:button.dispose()
+            finally:
+                if root:root.dispose()
+        for _ in range(15):
+            self.wait(.2)
+            found=False
+            for frame,root in self.scoped_frames(task):
+                try:
+                    data=root.evaluate(DOM_SCRIPT) if root else frame.evaluate(DOM_SCRIPT)
+                    found=found or any(question_signature(q) in expected for q in data['questions'])
+                finally:
+                    if root:root.dispose()
+            if not found:return
+        raise StudyError('弹题已提交，但原弹窗未关闭；请在课程窗口核查，不会强制恢复播放')
+
     def submit(self, task, questions=None, allow_restricted=False):
         self.checkpoint()
         frame, data = self.questions(task)
@@ -708,6 +756,10 @@ class CourseBrowser:
             raise StudyError("提交前题目已变化，未点击提交")
         if data["formal_exam"]:
             raise StudyError("正式考试必须由用户手动进入并处理")
+        if data['restricted'] and not allow_restricted:
+            raise StudyError('提交前发现限次或不可重做限制，需先单独授权')
+        if any(q.get('native_video') for q in data['questions']):
+            return self.submit_embedded(task,frame,data['questions'])
         if self.confirm_submission(task, questions, allow_restricted):
             return
         candidates = frame.evaluate_handle("""() => Array.from(document.querySelectorAll('button,a,input[type="submit"]')).filter(element=>element.getClientRects().length&&/^(?:提交|提交答案|提交作业|提交测验|确认提交)$/.test((element.innerText||element.textContent||element.value||'').trim()))""")
@@ -736,6 +788,40 @@ class CourseBrowser:
             if self.confirm_submission(task, questions, allow_restricted):
                 return
         raise StudyError("提交后未出现可识别的确认窗口或平台反馈；保留提交意图，请人工核对，避免重复提交")
+
+    def submit_embedded(self, task, frame, questions):
+        if len(questions)!=1 or not questions[0].get('native_video'):
+            raise StudyError('视频弹题区域不唯一，请在原页面核查')
+        root=self.question_element(frame,questions[0],task)
+        key=self.embedded_key(task,questions)
+        self.embedded_receipts.pop(key,None)
+        metadata=root.evaluate("""e=>{const cmp=window.Ext?.getCmp?.(e.id);return {url:cmp?.validationUrl2||'',event:cmp?.renderData?.resourceId||''}}""")
+        def capture(response):
+            try:
+                if not metadata['url'] or not metadata['event'] or response.request.frame!=frame:return
+                from urllib.parse import urljoin
+                wanted=urlsplit(urljoin(frame.url,metadata['url']));actual=urlsplit(response.url)
+                if (wanted.scheme,wanted.netloc,wanted.path)!=(actual.scheme,actual.netloc,actual.path):return
+                if parse_qs(actual.query).get('eventid',[''])[0]!=str(metadata['event']) or response.status!=200:return
+                result=response.json()
+                if result.get('status') is True and isinstance(result.get('isRight'),bool):
+                    self.embedded_receipts[key]='graded' if result['isRight'] else 'incorrect'
+            except Exception:return
+        self.page.on('response',capture)
+        try:
+            buttons=root.query_selector_all('#videoquiz-submit')
+            if len(buttons)!=1 or not buttons[0].is_visible() or not buttons[0].is_enabled():
+                raise StudyError('未找到唯一的视频弹题提交按钮')
+            try:self.perform(lambda:buttons[0].click(timeout=4000))
+            finally:
+                for button in buttons:button.dispose()
+            for _ in range(30):
+                self.wait(.3)
+                if self.embedded_feedback(task,questions):return
+            raise StudyError('弹题提交后缺少明确反馈；保留提交意图，不重复提交')
+        finally:
+            self.page.remove_listener('response',capture)
+            root.dispose()
 
     def scroll_reading_area(self, task):
         moved = False
@@ -838,6 +924,7 @@ class CourseBrowser:
         return self.scroll_reading_area(task)
 
     def close(self):
+        self.embedded_receipts.clear()
         try:
             if self.browser:
                 self.browser.close()

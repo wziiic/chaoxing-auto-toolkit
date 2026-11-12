@@ -1,0 +1,26 @@
+<!doctype html><html lang="zh-CN"><meta charset="utf-8"><body>
+<video id="video" controls width="320" height="180"></video>
+<div class="ans-videoquiz" id="native-quiz">
+  <div class="tkTopic_title">单选题</div>
+  <div class="tkItem_title">请选择数字二</div>
+  <ul class="tkItem_ul">
+    <li class="ans-videoquiz-opt"><label><input type="radio" name="ans-videoquiz-opt" value="false">A、一</label></li>
+    <li class="ans-videoquiz-opt"><label><input type="radio" name="ans-videoquiz-opt" value="false">B、二</label></li>
+    <li class="ans-videoquiz-opt"><label><input type="radio" name="ans-videoquiz-opt" value="false">C、三</label></li>
+  </ul>
+  <a id="videoquiz-submit">提交</a>
+  <a id="videoquiz-continue" style="display:none">继续学习</a>
+  <span id="spanHas" style="display:none">回答正确</span>
+  <span id="spanNot" style="display:none">回答错误</span>
+</div>
+<script>
+window.Ext={getCmp:()=>({renderData:{resourceId:'event-1'},validationUrl2:'/fixture-video-answer'})};
+document.querySelector('#videoquiz-submit').onclick=async()=>{
+  window.fixtureNativeSubmits=(window.fixtureNativeSubmits||0)+1;
+  const response=await fetch('/fixture-video-answer?eventid=event-1');const result=await response.json();
+  if(window.fixtureAutoClose&&result.isRight){document.querySelector('.ans-videoquiz').remove();return;}
+  document.querySelector(result.isRight?'#spanHas':'#spanNot').style.display='block';
+  document.querySelector('#videoquiz-continue').style.display=result.isRight?'block':'none';
+};
+document.querySelector('#videoquiz-continue').onclick=()=>document.querySelector('.ans-videoquiz').remove();
+</script></body></html>

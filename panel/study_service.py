@@ -611,9 +611,7 @@ class StudyManager:
         return False
 
     def media(self, task, options):
-        if self.driver.popup(task):
-            if not self.answer(task, options, embedded=True):
-                return
+        if not self.resolve_popups(task,options):return
         self.driver.play(task, options["rate"])
         deadline = time.monotonic() + 6 * 60 * 60
         last_progress = time.monotonic()
@@ -622,9 +620,7 @@ class StudyManager:
         while time.monotonic() < deadline:
             self.driver.wait(1)
             if self.driver.popup(task):
-                self.driver.pause_media()
-                if not self.answer(task, options, embedded=True):
-                    return
+                if not self.resolve_popups(task,options):return
                 self.driver.play(task, 1)
                 continue
             state = self.driver.media_state(task)
@@ -673,6 +669,16 @@ class StudyManager:
                 raise StudyError("媒体长时间没有真实进度，可能页面脚本阻塞或播放失败")
         raise StudyError("当前媒体超过单次 6 小时执行上限，已暂停")
 
+    def resolve_popups(self,task,options):
+        for _ in range(20):
+            self.checkpoint()
+            if not self.driver.popup(task):
+                self.update(task,has_popup=False)
+                return True
+            self.driver.pause_media()
+            if not self.answer(task,options,embedded=True):return False
+        raise StudyError('连续弹题仍未结束，已暂停核查；不会绕过弹窗启动视频')
+
     def model(self, questions):
         prompt = study_prompt(questions)
         if self.model_future and not self.model_future.done():
@@ -705,9 +711,21 @@ class StudyManager:
         if data.get("inline_submit") or not data.get("explicit_submit", True):
             raise StudyError("检测到即时提交型控件或没有独立提交按钮；为避免填写即提交，需在原页面人工处理")
         fingerprint = digest(sorted(question_signature(question) for question in data["questions"]))
-        previous = self.store.submission(self.state["course_id"], task["id"], fingerprint)
-        if previous in ("intent", "submitted", "graded", "saved", "verified") or self.store.pending_intent(self.state["course_id"], task["id"]):
+        ledger_id=task['id']+':popup' if embedded else task['id']
+        previous = self.store.submission(self.state["course_id"], ledger_id, fingerprint)
+        pending=previous=='intent' if embedded else self.store.pending_intent(self.state['course_id'],task['id'])
+        if embedded and self.store.pending_intent(self.state['course_id'],task['id']):
+            raise StudyError('此视频存在旧版弹题提交意图，请在原页面核实；不会重新提交')
+        if previous in ("intent", "submitted", "graded", "saved", "verified",'incorrect') or pending:
             self.log("已有提交意图或反馈记录，仅核验，不重复提交")
+            if embedded:
+                feedback=self.driver.embedded_feedback(task,data['questions'])
+                if feedback in ('submitted','graded'):
+                    self.store.submission(self.state['course_id'],ledger_id,fingerprint,feedback)
+                    self.driver.continue_embedded(task,data['questions'])
+                    self.update(task,status='running',popup_submission=feedback)
+                    return True
+                raise StudyError('此弹题已有提交记录但尚未确认可继续；请核对原弹窗，不重复提交')
             self.verify(task)
             if task["status"] != "done" and self.store.pending_intent(self.state["course_id"], task["id"]):
                 self.update(task, reason="旧提交意图阻止重复答题。请先打开原页面核实；确认尚未提交后，点击本行“核实未提交后重试”，再开始选中任务")
@@ -718,27 +736,30 @@ class StudyManager:
         answers = self.model(data["questions"])
         self.checkpoint()
         self.driver.fill(task, data["questions"], answers)
-        self.update(task, status="running", submission="filled")
-        self.store.submission(self.state["course_id"], task["id"], fingerprint, "filled")
+        submission_field='popup_submission' if embedded else 'submission'
+        self.update(task, status="running", **{submission_field:"filled"})
+        self.store.submission(self.state["course_id"], ledger_id, fingerprint, "filled")
         if not options["auto_submit"]:
             raise StudyError("已填写并回读确认；自动提交未开启，请手动提交或开启后继续")
         self.checkpoint()
-        self.store.submission(self.state["course_id"], task["id"], fingerprint, "intent")
-        self.update(task, status="verifying", submission="intent")
+        self.store.submission(self.state["course_id"], ledger_id, fingerprint, "intent")
+        self.update(task, status="verifying", **{submission_field:"intent"})
         self.driver.submit(task, data["questions"], allow_restricted=task["id"] in options["approved_task_ids"])
         feedback = ""
         for delay in (1, 2, 4):
             self.driver.wait(delay)
-            feedback = self.driver.feedback(task, frame)
+            feedback = self.driver.embedded_feedback(task,data['questions']) if embedded else self.driver.feedback(task, frame)
             if feedback:
                 break
         if feedback:
-            self.store.submission(self.state["course_id"], task["id"], fingerprint, feedback)
-            self.update(task, submission=feedback)
+            self.store.submission(self.state["course_id"], ledger_id, fingerprint, feedback)
+            self.update(task, **{submission_field:feedback})
         if embedded and feedback in ("submitted", "graded"):
+            self.driver.continue_embedded(task,data['questions'])
             self.update(task, status="running")
             return True
         if embedded:
+            if feedback=='incorrect':raise StudyError('平台反馈弹题答案未通过，已保留结果；不会自动重答或绕过回看要求')
             raise StudyError("弹题已尝试提交但缺少明确反馈；保留提交记录，需人工核验后继续播放")
         self.verify(task)
         return False

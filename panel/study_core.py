@@ -133,6 +133,8 @@ def normalize_answers(questions, raw):
                 if not isinstance(answer, list) or not answer or len(set(map(str, answer))) != len(answer):
                     raise StudyError("模型多选结果必须是非空且无重复的选项数组")
             else:
+                if isinstance(answer,list) and len(answer)==1:
+                    answer=answer[0]
                 answer = [answer]
             if any(not isinstance(item, str) or item not in choices for item in answer):
                 raise StudyError("模型答案无法精确匹配题目选项")

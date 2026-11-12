@@ -320,6 +320,56 @@ def until(check, timeout=5):
 
 
 class QueueTests(unittest.TestCase):
+    def test_video_auto_submit_disabled_leaves_popup_and_never_plays(self):
+        manager=self.make_manager(lambda prompt,config:{'q1':'B'})
+        task=manager.state['tasks'][0];task.update(kind='video');manager.worker_epoch=manager.epoch
+        manager.driver.popup=lambda task:True
+        with self.assertRaisesRegex(StudyError,'自动提交未开启'):
+            manager.resolve_popups(task,{'auto_fill':True,'auto_submit':False,'approved_task_ids':[]})
+        self.assertEqual(manager.driver.fill_count,1)
+        self.assertEqual(manager.driver.submit_count,0)
+        self.assertEqual(manager.driver.play_count,0)
+
+    def test_two_video_popups_submit_independently_before_playback(self):
+        manager=self.make_manager(lambda prompt,config:{'q1':'B','q2':'B'})
+        task=manager.state['tasks'][0];task.update(kind='video');manager.worker_epoch=manager.epoch
+        questions=[copy.deepcopy(QUESTION),{**copy.deepcopy(QUESTION),'qid':'q2','stem':'第二个弹题请选择数字二'}]
+        submitted=set()
+        manager.driver.popup=lambda task:bool(questions)
+        manager.driver.questions=lambda task:(manager.driver,{'questions':[questions[0]],'formal_exam':False,'restricted':False})
+        def submit(task,questions=None,allow_restricted=False):
+            manager.driver.submit_count+=1;submitted.add(questions[0]['qid'])
+        manager.driver.submit=submit
+        manager.driver.embedded_feedback=lambda task,items:'graded' if items[0]['qid'] in submitted else ''
+        manager.driver.continue_embedded=lambda task,items:questions.pop(0)
+        self.assertTrue(manager.resolve_popups(task,{'auto_fill':True,'auto_submit':True,'approved_task_ids':[]}))
+        self.assertEqual(manager.driver.submit_count,2)
+        self.assertEqual(manager.driver.fill_count,2)
+        self.assertEqual(manager.driver.play_count,0)
+        self.assertFalse(task['verified'])
+        self.assertFalse(manager.store.pending_intent(manager.state['course_id'],task['id']))
+
+    def test_submitted_popup_does_not_verify_video_or_submit_again(self):
+        manager=self.make_manager(lambda prompt,config:{'q1':'B'})
+        task=manager.state['tasks'][0];task.update(kind='video');manager.worker_epoch=manager.epoch
+        manager.driver.embedded_feedback=lambda task,items:''
+        options={'auto_fill':True,'auto_submit':True,'approved_task_ids':[]}
+        with self.assertRaisesRegex(StudyError,'缺少明确反馈'):manager.answer(task,options,embedded=True)
+        with patch.object(manager,'verify',side_effect=AssertionError('must not verify video')):
+            with self.assertRaisesRegex(StudyError,'已有提交记录'):manager.answer(task,options,embedded=True)
+        self.assertEqual(manager.driver.submit_count,1)
+        self.assertFalse(task['verified'])
+        self.assertEqual(task['popup_submission'],'intent')
+
+    def test_incorrect_video_answer_does_not_continue_or_retry(self):
+        manager=self.make_manager(lambda prompt,config:{'q1':'B'})
+        task=manager.state['tasks'][0];task.update(kind='video');manager.worker_epoch=manager.epoch
+        manager.driver.embedded_feedback=lambda task,items:'incorrect'
+        manager.driver.continue_embedded=MagicMock()
+        with self.assertRaisesRegex(StudyError,'未通过'):manager.answer(task,{'auto_fill':True,'auto_submit':True,'approved_task_ids':[]},embedded=True)
+        self.assertEqual(manager.driver.submit_count,1)
+        manager.driver.continue_embedded.assert_not_called()
+
     def test_pointer_leave_pause_and_platform_limits_are_specific_and_do_not_replay(self):
         for extra,expected in [({'pause_reason':'pointer_left_window'},'鼠标离开'),({'job_limit':True},'任务数量'),({'time_limit':True},'学习时长')]:
             with self.subTest(extra=extra):
@@ -731,6 +781,51 @@ class QueueTests(unittest.TestCase):
 
 
 class BrowserFixtureTests(unittest.TestCase):
+    def test_auto_closed_popup_without_valid_receipt_is_not_success(self):
+        task,frame=self.native_video_quiz(auto_close=True)
+        self.context.route('**/fixture-video-answer?*',lambda route:route.fulfill(content_type='application/json',body=json.dumps({'status':False,'isRight':True})))
+        _,data=self.driver.questions(task);q=data['questions'][0]
+        self.driver.fill(task,data['questions'],normalize_answers(data['questions'],{q['qid']:'B'}))
+        with self.assertRaisesRegex(StudyError,'缺少明确反馈'):self.driver.submit(task,data['questions'])
+        self.assertEqual(self.driver.embedded_feedback(task,data['questions']),'')
+        self.assertEqual(frame.evaluate('window.fixtureNativeSubmits'),1)
+
+    def native_video_quiz(self, correct=True, auto_close=False):
+        html=(ROOT/'tests/fixtures/video_quiz.html').read_text(encoding='utf-8')
+        self.context.route('**/videoquiz-frame',lambda route:route.fulfill(content_type='text/html',body=html))
+        self.context.route('**/fixture-video-answer?*',lambda route:route.fulfill(content_type='application/json',body=json.dumps({'status':True,'isRight':correct})))
+        self.page.locator('[data-study-task-id="video-one"]').evaluate("e=>e.innerHTML='<iframe src=\"https://mooc1.chaoxing.com/videoquiz-frame\"></iframe>'")
+        self.page.frame_locator('iframe[src*="videoquiz-frame"]').locator('.ans-videoquiz').wait_for()
+        frame=next(f for f in self.page.frames if f.url.endswith('/videoquiz-frame'))
+        frame.evaluate('value=>window.fixtureAutoClose=value',auto_close)
+        return self.task('video-one'),frame
+
+    def test_native_video_quiz_uses_labels_not_duplicate_input_values(self):
+        task,frame=self.native_video_quiz()
+        self.assertTrue(self.driver.popup(task))
+        _,data=self.driver.questions(task);question=data['questions'][0]
+        self.assertTrue(question['native_video'])
+        self.assertEqual([o['data'] for o in question['options']],['A','B','C'])
+        self.assertEqual([o['content'] for o in question['options']],['一','二','三'])
+        answers=normalize_answers(data['questions'],{question['qid']:['B']})
+        self.driver.fill(task,data['questions'],answers)
+        self.assertEqual(frame.locator('input:checked').count(),1)
+        self.driver.submit(task,data['questions'])
+        self.assertEqual(self.driver.embedded_feedback(task,data['questions']),'graded')
+        self.assertTrue(self.driver.popup(task))
+        self.driver.continue_embedded(task,data['questions'])
+        self.assertFalse(self.driver.popup(task))
+        self.assertEqual(frame.evaluate('window.fixtureNativeSubmits'),1)
+
+    def test_native_auto_closing_popup_requires_matching_server_receipt(self):
+        task,frame=self.native_video_quiz(auto_close=True)
+        _,data=self.driver.questions(task);q=data['questions'][0]
+        self.driver.fill(task,data['questions'],normalize_answers(data['questions'],{q['qid']:'B'}))
+        self.driver.submit(task,data['questions'])
+        self.assertFalse(self.driver.popup(task))
+        self.assertEqual(self.driver.embedded_feedback(task,data['questions']),'graded')
+        self.driver.continue_embedded(task,data['questions'])
+
     def empty_card(self, body='<dl><dd>暂无内容</dd></dl>'):
         self.context.route('**/knowledge/cards',lambda route:route.fulfill(content_type='text/html',body='<script>window.mArg={attachments:[]}</script>'+body))
         self.page.locator('[data-study-task-id]').evaluate_all('nodes=>nodes.forEach(n=>n.remove())')

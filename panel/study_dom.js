@@ -106,8 +106,10 @@
   const catalogComplete = !!tree && !!total && Number(total) === new Set(chapters.map(chapter => chapter.id).filter(Boolean)).size && !incomplete;
   const media = Array.from(root.querySelectorAll('video,audio')).filter(visible).map(element => ({kind: element.tagName.toLowerCase(), current: Number(element.currentTime) || 0, duration: Number.isFinite(element.duration) ? element.duration : 0, paused: element.paused, ended: element.ended, ready: element.readyState, error: element.error?.code || 0, rate: element.playbackRate}));
   const feedbackText = root === document ? body : text(root);
-  const feedback = /已判分|批阅完成/.test(feedbackText) ? 'graded' : /提交成功|已提交/.test(feedbackText) ? 'submitted' : /保存成功|已保存|暂存成功/.test(feedbackText) ? 'saved' : '';
-  const explicitSubmit = Array.from(root.querySelectorAll('button,a,input[type="submit"]')).filter(visible).filter(element=>/^(?:提交|提交答案|提交作业|提交测验|确认提交)$/.test(text(element)||element.value||'')).length === 1;
+  const videoPanel=root.matches?.('.ans-videoquiz')?root:Array.from(root.querySelectorAll('.ans-videoquiz')).find(visible);
+  const videoFeedback=videoPanel&&(visible(videoPanel.querySelector('#spanHas'))?'graded':Array.from(videoPanel.querySelectorAll('#spanNot,#spanNotBack,#spanNotBackPoint')).some(visible)?'incorrect':'');
+  const feedback = videoFeedback||(/已判分|批阅完成/.test(feedbackText) ? 'graded' : /提交成功|已提交/.test(feedbackText) ? 'submitted' : /保存成功|已保存|暂存成功/.test(feedbackText) ? 'saved' : '');
+  const explicitSubmit = Array.from((videoPanel||root).querySelectorAll('button,a,input[type="submit"]')).filter(visible).filter(element=>/^(?:提交|提交答案|提交作业|提交测验|确认提交)$/.test(text(element)||element.value||'')).length === 1;
   const inlineSubmit = Array.from(root.querySelectorAll('input,textarea,label')).some(element=>/submit|saveAnswer|checkAnswer/i.test((element.getAttribute('onclick')||'')+' '+(element.getAttribute('onchange')||'')));
   const quizStatus = text(root.querySelector('.newTestTitle .testTit_status'));
   const quizPlatform = /^(?:待完成|未完成|未提交)$/.test(quizStatus) ? 'todo' : /^(?:已完成|已通过)$/.test(quizStatus) ? 'done' : 'unknown';
