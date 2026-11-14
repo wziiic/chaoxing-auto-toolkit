@@ -35,6 +35,11 @@ def main():
             commands.append(route.request.post_data_json);route.fulfill(json=state)
         context.route('**/api/study/control',control)
         context.route('**/api/config',lambda route:route.fulfill(json={'llm':{'base_url':'https://fixture.invalid','model':'fixture','has_key':False}}))
+        browser_settings={'preferences':{'choice':'system','custom_path':''},'available':{'chrome':True,'edge':True}}
+        def browser_route(route):
+            if route.request.method=='POST':browser_settings['preferences']=route.request.post_data_json
+            route.fulfill(json=browser_settings)
+        context.route('**/api/browser-settings',browser_route)
         context.route('**/api/works?**',lambda route:route.fulfill(json={'works':[]}))
         page=context.new_page();page.on('pageerror',lambda error:errors.append(str(error)))
         page.goto('http://127.0.0.1:8765/study')
@@ -66,8 +71,14 @@ def main():
         assert page.locator('#openLlmSettings').inner_text()=='设置'
         page.locator('#startupTab').click()
         assert page.locator('#startupPanel').is_visible() and not page.locator('#cfgBase').is_visible()
+        page.locator('#prefBrowser').select_option('custom')
+        assert page.locator('#prefBrowserPath').is_visible()
+        page.locator('#prefBrowser').select_option('edge')
+        assert not page.locator('#prefBrowserPath').is_visible()
         page.locator('#prefAutoRead').check();page.locator('#prefStartPage').select_option('study')
         page.locator('#prefLoadingTips').uncheck();page.locator('#saveStartupSettings').click()
+        page.wait_for_function('document.querySelector("#startupNotice").textContent.startsWith("已保存")')
+        assert browser_settings['preferences']['choice']=='edge'
         assert page.evaluate('getPanelPreferences().auto_read_courses')
         assert not page.evaluate('getPanelPreferences().loading_tips')
         assert len(reads)==2, 'Saving startup settings must not start a read immediately'
@@ -80,6 +91,7 @@ def main():
         second.reload();second.wait_for_timeout(400)
         assert len(reads)==3
         second.locator('#openLlmSettings').click();second.locator('#startupTab').click()
+        second.wait_for_function('document.querySelector("#prefBrowser").value==="edge"')
         assert second.locator('#prefAutoRead').is_checked()
         assert second.locator('#prefStartPage').input_value()=='study'
         assert not errors, errors

@@ -56,13 +56,32 @@
     node('prefRememberFilters').checked=prefs.remember_filters;node('prefLoadingTips').checked=prefs.loading_tips;
     node('prefConfirmReload').checked=prefs.confirm_reload;
   }
-  node('saveStartupSettings').addEventListener('click',()=>{
+  let browserReady=false;
+  const toggleBrowserPath=()=>{node('customBrowserRow').hidden=node('prefBrowser').value!=='custom';};
+  node('prefBrowser').addEventListener('change',toggleBrowserPath);
+  async function loadBrowserPreferences(){
+    browserReady=false;node('saveStartupSettings').disabled=true;
+    node('browserNotice').textContent='正在读取浏览器设置…';
     try{
+      const data=await request('/api/browser-settings');
+      node('prefBrowser').value=data.preferences.choice;
+      node('prefBrowserPath').value=data.preferences.custom_path||'';toggleBrowserPath();
+      node('browserNotice').textContent=`本机检测：Chrome ${data.available.chrome?'已安装':'未找到'} · Edge ${data.available.edge?'已安装':'未找到'}。切换不会中断当前课程。`;
+      browserReady=true;
+    }catch(error){node('browserNotice').textContent='读取浏览器设置失败：'+error.message;}
+    finally{node('saveStartupSettings').disabled=!browserReady;}
+  }
+  node('saveStartupSettings').addEventListener('click',async()=>{
+    if(!browserReady||node('saveStartupSettings').disabled)return;
+    node('saveStartupSettings').disabled=true;
+    try{
+      await request('/api/browser-settings',{choice:node('prefBrowser').value,custom_path:node('prefBrowserPath').value});
       localStorage.setItem(preferenceKey,JSON.stringify({auto_read_courses:node('prefAutoRead').checked,start_page:node('prefStartPage').value,
         remember_filters:node('prefRememberFilters').checked,loading_tips:node('prefLoadingTips').checked,confirm_reload:node('prefConfirmReload').checked}));
       window.dispatchEvent(new Event('panelpreferenceschange'));
-      node('startupNotice').textContent='已保存。启动选项在下次打开新窗口时生效，界面偏好立即生效。';
-    }catch{node('startupNotice').textContent='保存失败，请检查浏览器是否允许本地存储。';}
+      node('startupNotice').textContent='已保存。浏览器选择在下次启动面板或新建课程窗口时生效；界面偏好立即生效。';
+    }catch(error){node('startupNotice').textContent='保存失败：'+error.message;}
+    finally{node('saveStartupSettings').disabled=false;}
   });
   window.reloadPanelPage=async()=>{
     if(window.getPanelPreferences().confirm_reload){
@@ -97,6 +116,7 @@
   };
   window.openLlmSettings=async()=>{
     loadStartupPreferences();node('llmSettings').showModal();notice('正在读取模型配置…');lock(true);
+    loadBrowserPreferences();
     try{await window.loadCfg();notice('两页共用同一配置；修改后请先保存，再测试连接。');}
     catch(error){notice('读取失败：'+error.message,true);}finally{lock(false);}
   };
