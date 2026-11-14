@@ -168,13 +168,7 @@ class StudyManager:
                 self.persist()
                 return self.snapshot()
             if action == "load":
-                if payload.get('course_id'):
-                    entry = next((item for item in self.directory['courses'] if item['id']==payload['course_id']), None)
-                    if not entry or not entry.get('entry'):
-                        raise StudyError('所选课程已失效，请刷新课程列表')
-                    payload = {'entry': copy.deepcopy(entry)}
-                else:
-                    course_link(payload.get("url", ""))
+                course_link(payload["url"])
             elif action not in ("pause", "stop", "discover", "open") and not self.loaded:
                 raise StudyError("尚无可恢复的课程链接，请先手动读取一次课程")
             if action == "open" and payload.get("task_id") and not self.loaded:
@@ -242,12 +236,7 @@ class StudyManager:
                             self.recover_course_link()
                         self.driver.url = self.course_url or getattr(self.driver, "url", None)
                     if action == "load":
-                        if payload.get('entry'):
-                            self.update(message='正在获取所选课程入口，只读取目录，不遍历任务点')
-                            url = self.driver.resolve_course(payload['entry'])
-                        else:
-                            url = payload['url']
-                        self.load(url)
+                        self.load(payload["url"])
                     elif action == "refresh":
                         self.driver.start(self.course_url)
                         self.refresh()

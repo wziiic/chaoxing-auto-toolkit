@@ -1,4 +1,4 @@
-"""List course titles quickly; resolve only the selected course entry."""
+"""Read the account's course list and chapter progress without opening a player."""
 import re
 from urllib.parse import parse_qs, urlencode, urlsplit
 
@@ -67,7 +67,7 @@ def check_access(page):
             raise StudyError("平台要求验证码或身份验证，已停止读取；请先在课程窗口处理")
 
 
-def discover_courses(driver, publish, match_course=None, selected_entry=None):
+def discover_courses(driver, publish, match_course=None):
     from playwright.sync_api import TimeoutError as NavigationTimeout
     page = driver.context.new_page()
     page.set_default_timeout(4000)
@@ -75,61 +75,48 @@ def discover_courses(driver, publish, match_course=None, selected_entry=None):
     entries, courses, seen = [], [], set()
     complete = True
     try:
-        if selected_entry is not None:
-            if not platform_url(selected_entry.get("entry", ""), {"/visit/stucoursemiddle"}):
-                raise StudyError("课程入口无效，请刷新课程列表")
-            entries = [selected_entry]
-        else:
-            page.goto(LIST_URL, wait_until="domcontentloaded", timeout=25000)
+        page.goto(LIST_URL, wait_until="domcontentloaded", timeout=25000)
+        driver.checkpoint()
+        check_access(page)
+        # Include lazy-loaded cards and native pagination, with a finite upper bound.
+        for number in range(50):
             driver.checkpoint()
-            check_access(page)
-            # Include lazy-loaded cards and native pagination, with a finite upper bound.
-            for number in range(50):
-                driver.checkpoint()
-                page.wait_for_timeout(300)
-                cards = page.evaluate(CARD_SCRIPT)
-                added = 0
-                for card in cards:
-                    if not platform_url(card["entry"], {"/visit/stucoursemiddle"}):
-                        continue
-                    query = {key.lower(): values[0] for key, values in parse_qs(urlsplit(card["entry"]).query).items()}
-                    if match_course and any(query.get(key) != match_course.get(key) for key in ("courseid", "clazzid")):
-                        continue
-                    if not all(re.fullmatch(r"\d+", query.get(key, "")) for key in ("courseid", "clazzid")):
-                        continue
-                    identity = (query["courseid"], query["clazzid"], query.get("cpi", ""))
-                    if identity not in seen:
-                        seen.add(identity)
-                        card["id"] = digest(identity)[:24]
-                        entries.append(card)
-                        added += 1
-                page.evaluate("() => window.scrollTo(0,document.body.scrollHeight)")
-                page.wait_for_timeout(400)
-                if match_course and entries:
-                    break
-                if len(page.evaluate(CARD_SCRIPT)) > len(cards):
+            page.wait_for_timeout(300)
+            cards = page.evaluate(CARD_SCRIPT)
+            added = 0
+            for card in cards:
+                if not platform_url(card["entry"], {"/visit/stucoursemiddle"}):
                     continue
-                next_page = page.get_by_text("下一页", exact=True)
-                enabled = [item for item in next_page.all() if item.is_visible() and item.evaluate("e=>!e.closest('[disabled],[aria-disabled=true],.disabled')")]
-                if not enabled:
-                    break
-                if (not added and not match_course) or number == 49:
-                    complete = False
-                    break
-                enabled[0].click()
-                page.wait_for_timeout(600)
-                check_access(page)
+                query = {key.lower(): values[0] for key, values in parse_qs(urlsplit(card["entry"]).query).items()}
+                if match_course and any(query.get(key) != match_course.get(key) for key in ("courseid", "clazzid")):
+                    continue
+                if not all(re.fullmatch(r"\d+", query.get(key, "")) for key in ("courseid", "clazzid")):
+                    continue
+                identity = (query["courseid"], query["clazzid"], query.get("cpi", ""))
+                if identity not in seen:
+                    seen.add(identity)
+                    card["id"] = digest(identity)[:24]
+                    entries.append(card)
+                    added += 1
+            page.evaluate("() => window.scrollTo(0,document.body.scrollHeight)")
+            page.wait_for_timeout(400)
+            if match_course and entries:
+                break
+            if len(page.evaluate(CARD_SCRIPT)) > len(cards):
+                continue
+            next_page = page.get_by_text("下一页", exact=True)
+            enabled = [item for item in next_page.all() if item.is_visible() and item.evaluate("e=>!e.closest('[disabled],[aria-disabled=true],.disabled')")]
+            if not enabled:
+                break
+            if (not added and not match_course) or number == 49:
+                complete = False
+                break
+            enabled[0].click()
+            page.wait_for_timeout(600)
+            check_access(page)
         if not entries:
             raise StudyError("未读取到可访问的学生课程；请确认学习通已登录，或使用手动链接")
-        if selected_entry is None and match_course is None:
-            courses = [{"id": item["id"], "title": item["title"], "entry": item["entry"],
-                        "url": "", "platform": "unread", "completed": None, "total": None, "reason": ""}
-                       for item in entries]
-            result = {"courses": courses, "checked": len(courses), "total": len(courses), "complete": complete,
-                      "message": "已读取课程标题；选择课程后读取目录，开始学习后再识别当前章节任务"}
-            publish(**result)
-            return result
-        publish(courses=[], checked=0, total=len(entries), complete=complete, message="正在获取所选课程入口…")
+        publish(courses=[], checked=0, total=len(entries), complete=complete, message="正在核对各课程任务进度…")
         for index, entry in enumerate(entries):
             driver.checkpoint()
             item = {"id": entry["id"], "title": entry["title"], "url": "", "platform": "unknown",
@@ -159,9 +146,16 @@ def discover_courses(driver, publish, match_course=None, selected_entry=None):
                     page.wait_for_timeout(200)
                 if not chapter or not chapter.locator(".chapter_item").count():
                     raise ValueError("章节目录尚未加载")
+                # Wait briefly for delayed progress; no completion is inferred from chapter visits.
+                for attempt in range(8):
+                    driver.checkpoint()
+                    item.update(progress_state(chapter.locator("body").inner_text()))
+                    if item["platform"] != "unknown":
+                        break
+                    page.wait_for_timeout(200)
                 # Progress HTML can arrive before the deferred navigation
                 # scripts. A chapter item alone does not mean toOld can run.
-                failure_reason = "章节入口脚本尚未加载完成，请稍后刷新列表；未读取任务点"
+                failure_reason = "章节入口脚本尚未加载完成，请稍后刷新列表；已保留平台进度"
                 entry_ready = False
                 for attempt in range(150):
                     driver.checkpoint()
@@ -173,6 +167,7 @@ def discover_courses(driver, publish, match_course=None, selected_entry=None):
                     page.wait_for_timeout(200)
                 if not entry_ready:
                     raise ValueError("章节入口脚本未就绪")
+                item.update(progress_state(chapter.locator("body").inner_text()))
                 captured = []
                 failure_reason = "平台未提供可打开的章节或有效学习链接，可刷新列表或手动粘贴链接"
                 expected = {key.lower(): values[0] for key, values in parse_qs(urlsplit(entry["entry"]).query).items()}
@@ -243,6 +238,6 @@ def discover_courses(driver, publish, match_course=None, selected_entry=None):
             publish(courses=courses, checked=index + 1, total=len(entries), complete=complete,
                     message=f"已核对 {index + 1} / {len(entries)} 门课程")
         return {"courses": courses, "checked": len(entries), "total": len(entries), "complete": complete,
-                "message": "已获取所选课程入口，尚未读取任务点" if complete else "课程列表可能未加载完整，请刷新重试；当前仅展示已读取的课程"}
+                "message": "已按平台任务点进度筛选；状态未知的课程可切换查看" if complete else "课程列表可能未加载完整，请刷新重试；当前仅展示已读取的课程"}
     finally:
         page.close()

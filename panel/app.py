@@ -373,8 +373,7 @@ def study_asset(name: str):
 
 
 class StudyLoadReq(BaseModel):
-    url: str = Field(default="", min_length=1, max_length=6000)
-    course_id: Optional[str] = Field(default=None, min_length=1, max_length=64)
+    url: str = Field(min_length=1, max_length=6000)
 
 
 class StudyControlReq(BaseModel):
@@ -417,7 +416,7 @@ def study_courses_refresh():
 def study_load(req: StudyLoadReq):
     from study_core import StudyError
     try:
-        return get_study_manager().command("load", {"url": req.url, "course_id": req.course_id})
+        return get_study_manager().command("load", {"url": req.url})
     except StudyError as error:
         raise HTTPException(400, str(error)) from None
 
