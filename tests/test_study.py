@@ -1112,6 +1112,14 @@ class BrowserFixtureTests(unittest.TestCase):
                 progress={'111':'已完成任务点: 1/3','333':'已完成任务点: 3/3','444':'目录状态未知'}[identity]
                 link=LINK.replace('courseId=111','courseId='+identity)
                 html=f'''<p>{progress}</p><div class="chapter_item" onclick="toOld()">1.1</div><script>function toOld(){{setTimeout(()=>{{top.location.href='https://mooc1.chaoxing.com/mycourse/transfer?refer='+encodeURIComponent({json.dumps(link)})}},500)}}</script>'''
+                if identity=='111':
+                    # Progress arrives before the deferred navigation function.
+                    html=f'''<p>{progress}</p><div class="chapter_item" onclick="toOld()">1.1</div><script>
+                    setTimeout(()=>{{window.toOld=function(){{top.location.href={json.dumps(link)}}}}},1400)</script>'''
+                if identity=='444':
+                    # A popup's initial navigation bypasses page.route.
+                    html=f'''<p>{progress}</p><div class="chapter_item" onclick="toOld()">1.1</div><script>
+                    function toOld(){{window.open({json.dumps(link)},'_blank')}}</script>'''
                 if identity=='333':
                     # Native navigation was suppressed; the page still exposes its own URL parameters.
                     html=f'''<p>{progress}</p><div class="chapter_item" onclick="toOld('333','101','222',0)">1.1</div><script>

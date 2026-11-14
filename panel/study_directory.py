@@ -68,6 +68,7 @@ def check_access(page):
 
 
 def discover_courses(driver, publish, match_course=None):
+    from playwright.sync_api import TimeoutError as NavigationTimeout
     page = driver.context.new_page()
     page.set_default_timeout(4000)
     page.on("dialog", lambda dialog: dialog.dismiss())
@@ -122,20 +123,28 @@ def discover_courses(driver, publish, match_course=None):
                     "completed": None, "total": None, "reason": ""}
             failure_reason = "课程入口未能加载，请刷新列表或手动粘贴链接"
             try:
-                page.goto(entry["entry"], wait_until="domcontentloaded", timeout=20000)
+                try:
+                    page.goto(entry["entry"], wait_until="domcontentloaded", timeout=20000)
+                except NavigationTimeout:
+                    check_access(page)
+                    expected_entry = {key.lower(): values[0] for key, values in parse_qs(urlsplit(entry['entry']).query).items()}
+                    current = {key.lower(): values[0] for key, values in parse_qs(urlsplit(page.url).query).items()}
+                    if (not platform_url(page.url) or any(current.get(key)!=expected_entry.get(key) for key in ('courseid','clazzid'))
+                            or not page.get_by_text('章节', exact=True).count()):
+                        raise
                 check_access(page)
                 driver.checkpoint()
                 failure_reason = "无法打开课程章节目录，请在课程窗口检查访问权限"
                 page.get_by_text("章节", exact=True).click(timeout=5000)
                 chapter = None
-                for attempt in range(30):
+                for attempt in range(75):
                     driver.checkpoint()
                     check_access(page)
                     chapter = next((frame for frame in page.frames if urlsplit(frame.url).path.endswith("/mycourse/studentcourse")), None)
                     if chapter and chapter.locator(".chapter_item").count():
                         break
                     page.wait_for_timeout(200)
-                if not chapter:
+                if not chapter or not chapter.locator(".chapter_item").count():
                     raise ValueError("章节目录尚未加载")
                 # Wait briefly for delayed progress; no completion is inferred from chapter visits.
                 for attempt in range(8):
@@ -144,6 +153,21 @@ def discover_courses(driver, publish, match_course=None):
                     if item["platform"] != "unknown":
                         break
                     page.wait_for_timeout(200)
+                # Progress HTML can arrive before the deferred navigation
+                # scripts. A chapter item alone does not mean toOld can run.
+                failure_reason = "章节入口脚本尚未加载完成，请稍后刷新列表；已保留平台进度"
+                entry_ready = False
+                for attempt in range(150):
+                    driver.checkpoint()
+                    check_access(page)
+                    entry_ready = chapter.evaluate("""() => !!document.querySelector('a[href*="/mycourse/studentstudy"]') ||
+                        (typeof toOld==='function' && !!document.querySelector('.chapter_item[onclick^="toOld("]'))""")
+                    if entry_ready:
+                        break
+                    page.wait_for_timeout(200)
+                if not entry_ready:
+                    raise ValueError("章节入口脚本未就绪")
+                item.update(progress_state(chapter.locator("body").inner_text()))
                 captured = []
                 failure_reason = "平台未提供可打开的章节或有效学习链接，可刷新列表或手动粘贴链接"
                 expected = {key.lower(): values[0] for key, values in parse_qs(urlsplit(entry["entry"]).query).items()}
@@ -168,26 +192,38 @@ def discover_courses(driver, publish, match_course=None):
                     route.abort()
 
                 pattern = re.compile(r"^https://[^/]+\.chaoxing\.com/mycourse/(?:transfer|studentstudy)(?:\?|$)")
-                page.route(pattern, capture)
+                existing_pages = set(driver.context.pages)
+                # The first request of a native window.open is not intercepted
+                # by page.route. This read-only context is idle except for the
+                # temporary directory page, and all study navigation is aborted.
+                driver.context.route(pattern, capture)
                 try:
                     links = chapter.locator('a[href*="/mycourse/studentstudy"]')
-                    if links.count():
-                        candidate = links.first.evaluate("e=>e.href")
-                        if not accept(candidate):
-                            raise ValueError("学习链接与当前课程不符")
-                    else:
+                    for candidate in links.evaluate_all("nodes=>nodes.map(e=>e.href)"):
+                        if accept(candidate):
+                            break
+                    if not captured:
+                        accept(page_study_link(chapter))
+                    if not captured:
                         # Let the platform generate its own signed URL, but abort before navigation.
-                        chapter.locator('.chapter_item[onclick^="toOld("]').first.click(timeout=4000, no_wait_after=True)
-                        for attempt in range(30):
+                        try:
+                            indexes = chapter.locator('.chapter_item[onclick]').evaluate_all(
+                                r"nodes=>nodes.flatMap((e,i)=>/^\s*toOld\s*\(/.test(e.getAttribute('onclick'))?[i]:[])")
+                            if indexes:
+                                chapter.locator('.chapter_item[onclick]').nth(indexes[0]).click(timeout=4000, no_wait_after=True)
+                        except Interrupted:
+                            raise
+                        except Exception:
+                            pass  # The click can time out while its native URL is still being generated.
+                        for attempt in range(50):
                             driver.checkpoint()
                             if captured:
                                 break
                             page.wait_for_timeout(100)
-                except Exception:
-                    if not captured:
-                        raise
                 finally:
-                    page.unroute(pattern, capture)
+                    driver.context.unroute(pattern, capture)
+                    for popup in set(driver.context.pages) - existing_pages:
+                        popup.close()
                 if not captured:
                     accept(page_study_link(chapter))
                 if captured:
