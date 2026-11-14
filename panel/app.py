@@ -111,7 +111,8 @@ def save_config(cfg: dict):
 def run_script(args: List[str], timeout: int = 900) -> Dict[str, Any]:
     """跑 lxt-auto 下的脚本，返回 {code, out}。"""
     r = subprocess.run([PY] + args, cwd=ROOT, capture_output=True, text=True,
-                       encoding="utf-8", errors="ignore", timeout=timeout)
+                       encoding="utf-8", errors="ignore", timeout=timeout,
+                       creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
     return {"code": r.returncode, "out": (r.stdout or "") + (r.stderr or "")}
 
 

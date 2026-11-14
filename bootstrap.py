@@ -61,7 +61,8 @@ def pip_install(extra_args=None):
         cmd += extra_args
     print("   " + " ".join(cmd), flush=True)
     r = subprocess.run(cmd, capture_output=True, text=True,
-                       encoding="utf-8", errors="ignore")
+                       encoding="utf-8", errors="ignore",
+                       creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
     return r.returncode == 0, (r.stdout or "") + (r.stderr or "")
 
 

@@ -23,7 +23,8 @@ for wid in ids:
     qf = os.path.join(HERE, "works", wid, "questions.json")
     n_q = len(json.load(open(qf, encoding="utf-8")))
     r = subprocess.run([PY, os.path.join(HERE, "lxt.py"), "verify", "--state", st],
-                       capture_output=True, text=True, encoding="utf-8", errors="ignore")
+                       capture_output=True, text=True, encoding="utf-8", errors="ignore",
+                       creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
     m = re.search(r"非空答案 (\d+) 题", r.stdout)
     n_saved = int(m.group(1)) if m else -1
     total += n_saved if n_saved > 0 else 0

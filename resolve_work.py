@@ -173,8 +173,10 @@ def main():
         # 提取表单参数 + 解析题目
         import subprocess, sys
         py = sys.executable
-        subprocess.run([py, os.path.join(HERE, "lxt.py"), "loadhtml", "--url", final], check=False)
-        subprocess.run([py, os.path.join(HERE, "lxt.py"), "parse"], check=False)
+        subprocess.run([py, os.path.join(HERE, "lxt.py"), "loadhtml", "--url", final], check=False,
+                       creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
+        subprocess.run([py, os.path.join(HERE, "lxt.py"), "parse"], check=False,
+                       creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
 
         ctx.close()
         browser.close()
