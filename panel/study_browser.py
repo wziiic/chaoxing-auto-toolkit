@@ -48,7 +48,14 @@ MEDIA_GUARD_SCRIPT = """(() => {
 TASK_ROOT_SCRIPT = """identity => Array.from(document.querySelectorAll('[data-study-task-id], .ans-attach-ct')).find(element => { const iframe=element.querySelector('iframe'); let data={};try{data=JSON.parse(iframe?.getAttribute('data')||element.getAttribute('data')||'{}')}catch{};return String(element.getAttribute('data-study-task-id')||element.getAttribute('data-jobid')||element.getAttribute('jobid')||data._jobid||data.jobid||data.objectid||data.workid)===identity}) || null"""
 
 
+class MediaLoading(StudyError):
+    pass
+
+
 class CourseBrowser:
+    navigation_ready_timeout = 45
+    assistant_timeout_ms = 8000
+
     def __init__(self, checkpoint, log):
         self.checkpoint = checkpoint
         self.log = log
@@ -84,6 +91,7 @@ class CourseBrowser:
             self.browser = lxt.launch_chromium(self.runtime, headless=self.headless, standard_automation=True)
             self.context = self.browser.new_context(viewport={"width": 1400, "height": 900}, **({"storage_state": storage} if storage else {}))
             self.context.add_init_script(MEDIA_GUARD_SCRIPT)
+            self.context.route(re.compile(r"^https?://robot-lc\.chaoxing\.com/sdk/CxRobotSdkJs\.js(?:\?.*)?$"), self.assistant_script)
             try:
                 cookies = [] if storage else [cookie for cookie in lxt.load_cookies_for_browser()
                            if cookie["domain"].lstrip(".").endswith("chaoxing.com")
@@ -98,6 +106,19 @@ class CourseBrowser:
             self.page.on("dialog", self._dialog)
             self.page.on("pageerror", lambda error: self.diagnostic("课程页面脚本报错；如影响播放，请在课程窗口检查，错误未被屏蔽"))
             self.page.on("requestfailed", lambda request: self.diagnostic("课程窗口出现网络请求失败；若媒体缓冲或目录缺失，请检查连接"))
+
+    def assistant_script(self, route):
+        # This optional tutor SDK can block HTML parsing for over a minute.
+        # Bound only this exact resource; course, quiz and validation requests
+        # continue normally. Preserve the original status, headers and body.
+        from playwright.sync_api import Error
+        try:
+            response = route.fetch(timeout=self.assistant_timeout_ms, max_redirects=0)
+        except Error:
+            route.abort("timedout")
+            self.log("课程智能助教附属脚本加载失败或超时，已停止等待；课程任务照常加载，网页智能助教可能暂不可用")
+            return
+        route.fulfill(response=response)
 
     def window_state(self, state):
         if self.headless:
@@ -163,9 +184,32 @@ class CourseBrowser:
         parts = urlsplit(url)
         if parts.scheme != "https" or not (parts.hostname or "").endswith(".chaoxing.com"):
             raise StudyError("导航目标不是允许的学习通课程页面")
-        response = self.page.goto(url, wait_until="domcontentloaded", timeout=25000)
+        from playwright.sync_api import TimeoutError as NavigationTimeout
+        course_page = parts.path == "/mycourse/studentstudy"
+        try:
+            response = self.page.goto(url, wait_until="commit" if course_page else "domcontentloaded", timeout=25000)
+        except NavigationTimeout as error:
+            raise StudyError("课程页面连接超时，请检查系统代理、网络和平台可用性；已保留课程记录") from error
         if response and response.status >= 400:
             raise StudyError("课程导航返回 HTTP " + str(response.status) + "，可能登录失效、网络失败或访问被限制；请在课程窗口检查")
+        if course_page:
+            expected = {k.lower(): v[0] for k, v in parse_qs(parts.query).items()}
+            until = time.monotonic() + self.navigation_ready_timeout
+            while True:
+                self.checkpoint()
+                samples, _ = self.snapshots()
+                current = urlsplit(self.page.url)
+                actual = {k.lower(): v[0] for k, v in parse_qs(current.query).items()}
+                if (current.hostname != parts.hostname or current.path != parts.path
+                        or not expected.get('courseid')
+                        or any(expected.get(k) and expected[k] != actual.get(k) for k in ('courseid','clazzid','chapterid','knowledgeid'))):
+                    raise StudyError("课程页面跳转到了其他课程或登录页面，请检查课程窗口后重新读取")
+                main = next((data for frame,data in samples if frame == self.page.main_frame), {})
+                if any(chapter.get('id') for chapter in main.get('chapters', [])) and not main.get('catalog_loading'):
+                    break
+                if time.monotonic() >= until:
+                    raise StudyError("课程目录加载超时，页面尚未就绪；请检查系统代理或平台连接后继续，任务未计为完成")
+                self.wait(.25)
         self.checkpoint()
 
     def wait(self, seconds):
@@ -221,16 +265,25 @@ class CourseBrowser:
             raise StudyError("页面确认弹窗已取消，请人工确认限制条件后继续")
         return result, failures
 
-    def settle(self):
+    def settle(self, content=False):
         previous = None
-        for attempt in range(8):
+        until = time.monotonic() + (self.navigation_ready_timeout if content else 4)
+        attempt = 0
+        while True:
             samples, failures = self.snapshots()
+            pending = content and (any(data.get('content_pending') for _,data in samples) or
+                (any(data.get('catalog_present') for _,data in samples) and
+                 not any(data.get('tasks') or data.get('steps') or data.get('reference_content') for _,data in samples)))
             signature = digest([[data["tasks"], data["steps"]] for frame, data in samples])
-            if signature == previous and attempt >= 2:
+            if not pending and signature == previous and attempt >= 2:
+                return samples, failures
+            if time.monotonic() >= until:
+                if pending:
+                    raise StudyError("章节内容仍未加载完成，请检查网络或系统代理后继续；尚未判断任务状态，也未计为完成")
                 return samples, failures
             previous = signature
+            attempt += 1
             self.wait(0.5)
-        return samples, failures
 
     def catalogue(self):
         samples, failures = self.settle()
@@ -283,9 +336,9 @@ class CourseBrowser:
 
     def enter_chapter(self, chapter_id):
         self.goto(self.chapter_url(chapter_id))
-        result = self.settle()
+        result = self.settle(content=True)
         if self.reveal_tasks():
-            result = self.settle()
+            result = self.settle(content=True)
         self.pause_media()
         return result
 
@@ -320,7 +373,7 @@ class CourseBrowser:
                     self.perform(lambda: element.click(timeout=4000))
                     handle.dispose()
                     self.reveal_tasks()
-                    result = self.settle()
+                    result = self.settle(content=True)
                     self.pause_media()
                     return result
                 if not element:
@@ -484,6 +537,8 @@ class CourseBrowser:
             finally:
                 if root:
                     root.dispose()
+        if not found:
+            raise MediaLoading("当前任务的播放器尚未加载，正在等待")
         if len(found) != 1:
             raise StudyError("当前任务没有唯一可见媒体节点，等待加载或人工处理")
         return found[0]
@@ -527,13 +582,14 @@ class CourseBrowser:
                 elif target:
                     target.dispose()
         self.wait(0.3)
-        for attempt in range(6):
+        until = time.monotonic() + self.navigation_ready_timeout
+        while True:
             try:
                 element = self.media(task)
                 break
-            except StudyError:
-                if attempt == 5:
-                    raise
+            except MediaLoading as error:
+                if time.monotonic() >= until:
+                    raise StudyError("视频任务已识别，但播放器加载超时；请检查网络或系统代理后继续") from error
                 self.wait(.3)
         self.perform(lambda: element.scroll_into_view_if_needed(timeout=3000))
         result = self.perform(lambda: element.evaluate("""async (element, rate) => { element.setAttribute('data-lxt-playback-allowed','true'); const menu=Array.from(element.ownerDocument.querySelectorAll('[data-playback-rate],.vjs-menu-item')).map(item=>Number(item.getAttribute('data-playback-rate')||(item.textContent||'').replace(/[^0-9.]/g,''))).filter(value=>value>=0.5&&value<=2);const supported=rate===1||menu.includes(rate); element.playbackRate=supported?rate:1;let timer;try{const ok=await Promise.race([element.play().then(()=>true,()=>false),new Promise(resolve=>{timer=setTimeout(()=>resolve(false),3000)})]);return {ok,rate:element.playbackRate}}finally{clearTimeout(timer)} }""", rate))

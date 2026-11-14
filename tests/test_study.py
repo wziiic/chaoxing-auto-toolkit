@@ -1046,6 +1046,12 @@ class BrowserFixtureTests(unittest.TestCase):
         self.assertGreater(self.page.evaluate('scrollY'),1000)
         self.assertFalse(self.page.locator('[data-study-task-id="lazy-video"] video').evaluate('e=>e.paused'))
         self.driver.pause_media()
+        self.page.evaluate("""source=>{const root=document.querySelector('[data-study-task-id="lazy-video"]');
+          root.replaceChildren();setTimeout(()=>{const video=document.createElement('video');video.width=480;video.height=270;video.muted=true;video.src=source;root.append(video)},2500)
+        }""",source)
+        self.driver.play(self.task('lazy-video'),1)
+        self.assertFalse(self.page.locator('[data-study-task-id="lazy-video"] video').evaluate('e=>e.paused'))
+        self.driver.pause_media()
 
     def test_discussion_navigation_edit_only_and_verified_publication(self):
         from study_discussion import discussion
@@ -1247,6 +1253,57 @@ class BrowserFixtureTests(unittest.TestCase):
         self.context.route('**/mycourse/studentstudy?**', lambda route: route.abort())
         with self.assertRaises(Exception):
             self.driver.goto(LINK)
+
+    def test_navigation_uses_real_directory_without_waiting_for_child_resource(self):
+        held = []
+        self.context.route('**/slow-child', lambda route: held.append(route))
+        self.context.route('**/studentstudy?**', lambda route: route.fulfill(content_type='text/html', body='''
+            <div id="coursetree"><div data-chapter-id="101">Chapter</div></div>
+            <iframe src="https://mooc1.chaoxing.com/slow-child"></iframe>'''))
+        self.driver.goto(LINK)
+        self.assertEqual(self.page.locator('[data-chapter-id="101"]').count(), 1)
+        self.assertNotEqual(self.page.evaluate('document.readyState'), 'complete')
+        self.assertTrue(held)
+        for route in held:
+            route.abort()
+
+    def test_navigation_rejects_login_and_unready_directory(self):
+        self.context.route('**/studentstudy?**', lambda route: route.fulfill(content_type='text/html; charset=utf-8', body='请扫码登录'))
+        with self.assertRaisesRegex(StudyError, '登录'):
+            self.driver.goto(LINK)
+        self.context.route('**/studentstudy?**', lambda route: route.fulfill(content_type='text/html', body='<div id="coursetree"><div>Missing ID</div></div>'))
+        self.driver.navigation_ready_timeout = .15
+        with self.assertRaisesRegex(StudyError, '目录加载超时'):
+            self.driver.goto(LINK)
+
+    def test_optional_tutor_timeout_is_bounded_and_success_preserves_response(self):
+        from playwright.sync_api import Error
+        route = MagicMock()
+        self.driver.log = MagicMock()
+        route.fetch.side_effect = Error('timeout')
+        self.driver.assistant_script(route)
+        route.fetch.assert_called_once_with(timeout=8000, max_redirects=0)
+        route.abort.assert_called_once_with('timedout')
+        route.fulfill.assert_not_called()
+        self.driver.log.assert_called_once()
+        route = MagicMock()
+        self.driver.assistant_script(route)
+        route.fulfill.assert_called_once_with(response=route.fetch.return_value)
+        route.abort.assert_not_called()
+
+    def test_content_waits_for_delayed_attachment_initialization(self):
+        self.context.route('**/knowledge/cards', lambda route: route.fulfill(content_type='text/html', body='''
+            <p>Content still loading</p><script>setTimeout(()=>{
+            window.mArg={attachments:[{job:true,jobid:'late-video',type:'video'}]};
+            },1400)</script>'''))
+        self.page.set_content('<iframe src="https://mooc1.chaoxing.com/knowledge/cards"></iframe>')
+        samples, _ = self.driver.settle(content=True)
+        self.assertTrue(any(t['local_id']=='late-video' for _,d in samples for t in d['tasks']))
+        frame = next(f for f in self.page.frames if f.url.endswith('/knowledge/cards'))
+        frame.evaluate('delete window.mArg')
+        self.driver.navigation_ready_timeout = .15
+        with self.assertRaisesRegex(StudyError, '章节内容仍未加载'):
+            self.driver.settle(content=True)
 
     def chapter_quiz(self):
         html = (ROOT / 'tests/fixtures/chaoxing_quiz.html').read_text(encoding='utf-8')
