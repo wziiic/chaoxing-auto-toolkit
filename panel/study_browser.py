@@ -145,11 +145,18 @@ class CourseBrowser:
         self.page.bring_to_front()
 
     def discover_courses(self, publish):
-        from study_directory import LIST_URL, discover_courses
+        from study_directory import discover_courses
         self.background()
-        if self.page.url == "about:blank":
-            self.goto(LIST_URL)
         return discover_courses(self, publish)
+
+    def resolve_course(self, entry):
+        from study_directory import discover_courses
+        self.background()
+        result = discover_courses(self, lambda **values: None, selected_entry=entry)
+        link = next((item['url'] for item in result['courses'] if item['url']), '')
+        if not link:
+            raise StudyError(result['courses'][0]['reason'] or '未取得所选课程入口，请重试或手动粘贴链接')
+        return link
 
     def recover_link(self, public_url):
         from study_directory import discover_courses

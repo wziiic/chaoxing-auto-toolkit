@@ -690,6 +690,19 @@ class QueueTests(unittest.TestCase):
         self.assertEqual(manager.directory_snapshot()['status'], 'cancelled')
         self.assertEqual(manager.driver.submit_count, 0)
 
+    def test_selected_title_resolves_only_its_entry_without_starting(self):
+        manager=self.make_manager(lambda prompt,config:{})
+        entry={'id':'title-one','title':'Course','entry':'https://mooc2-ans.chaoxing.com/visit/stucoursemiddle?courseid=111&clazzid=222'}
+        manager.directory['courses']=[entry]
+        resolved=[]
+        manager.driver.resolve_course=lambda item:(resolved.append(item) or LINK)
+        with self.assertRaisesRegex(StudyError,'所选课程已失效'):
+            manager.command('load',{'course_id':'invalid'})
+        manager.command('load',{'course_id':'title-one'})
+        until(lambda:manager.snapshot()['status']=='ready')
+        self.assertEqual(resolved,[entry])
+        self.assertEqual(manager.driver.play_count,0)
+
     def test_selecting_course_cancels_in_progress_directory(self):
         manager = self.make_manager(lambda prompt, config: {})
         started=threading.Event()
@@ -1096,9 +1109,10 @@ class BrowserFixtureTests(unittest.TestCase):
         self.assertIsNone(media.get_attribute('data-lxt-playback-allowed'))
         self.assertTrue(media.evaluate(async_play))
 
-    def test_directory_reads_progress_and_captures_signed_link_without_player(self):
+    def test_title_list_defers_entries_and_resolves_selected_links_without_player(self):
         from urllib.parse import parse_qs, urlsplit
         player_requests=[]
+        entry_requests=[]
         def fixture(route):
             parts=urlsplit(route.request.url)
             query=parse_qs(parts.query)
@@ -1106,6 +1120,7 @@ class BrowserFixtureTests(unittest.TestCase):
                 html=''.join(f'<li class="course"><a href="/visit/stucoursemiddle?courseid={identity}&clazzid=222&cpi=hidden">Course {identity}</a></li>' for identity in ('111','111','333','444'))
             elif parts.path=='/visit/stucoursemiddle':
                 identity=query['courseid'][0]
+                entry_requests.append(identity)
                 html=f'<button onclick="document.querySelector(\'iframe\').src=\'/mooc2-ans/mycourse/studentcourse?courseid={identity}\'">章节</button><iframe></iframe>'
             elif parts.path.endswith('/mycourse/studentcourse'):
                 identity=query['courseid'][0]
@@ -1134,8 +1149,13 @@ class BrowserFixtureTests(unittest.TestCase):
         self.driver.context=self.context
         before=self.page.url
         result=self.driver.discover_courses(lambda **values:None)
-        self.assertEqual([item['platform'] for item in result['courses']],['todo','done','unknown'])
-        self.assertTrue(all('enc=secret' in item['url'] for item in result['courses']))
+        self.assertEqual([item['title'] for item in result['courses']],['Course 111','Course 333','Course 444'])
+        self.assertTrue(all(item['platform']=='unread' and item['total'] is None and not item['url'] for item in result['courses']))
+        self.assertEqual(entry_requests,[])
+        for index,item in enumerate(result['courses']):
+            link=self.driver.resolve_course(item)
+            self.assertIn('enc=secret',link)
+            self.assertEqual(len(entry_requests),index+1)
         self.assertEqual(self.page.url,before)
         self.assertEqual(player_requests,[])
 
@@ -1410,6 +1430,12 @@ class ApiTests(unittest.TestCase):
                 self.assertEqual(client.get('/api/study', headers=headers).status_code, 200)
                 self.assertEqual(client.post('/api/study/load', json={'url':'https://example.com/'}, headers=headers).status_code, 400)
                 self.assertEqual(client.post('/api/study/control', json={'action':'start'}, headers=headers).status_code, 409)
+                self.assertEqual(client.post('/api/study/load',json={'course_id':'missing'},headers=headers).status_code,400)
+                manager.directory['courses']=[{'id':'title-one','entry':'https://mooc2-ans.chaoxing.com/visit/stucoursemiddle?courseid=111&clazzid=222'}]
+                manager.driver.resolve_course=lambda entry:LINK
+                self.assertEqual(client.post('/api/study/load',json={'course_id':'title-one'},headers=headers).status_code,200)
+                until(lambda:manager.snapshot()['status']=='ready')
+                self.assertEqual(manager.driver.play_count,0)
 
 
 if __name__ == '__main__':

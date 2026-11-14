@@ -66,7 +66,7 @@
     }
     if(known)bar.setAttribute('aria-valuenow',String(percent));else bar.removeAttribute('aria-valuenow');
     bar.setAttribute('aria-valuetext',known?`${done} / ${total}`:'正在取得总数');
-    byId(prefix+'Label').textContent=active?(reading?(progress.scope==='catalogue'?'正在读取课程目录':'正在读取任务点'):'正在核对课程'):progress.phase==='cancelled'?'读取已停止':progress.phase==='failed'?'读取中断':(reading?'上次课程读取':'课程列表读取');
+    byId(prefix+'Label').textContent=active?(reading?(progress.scope==='catalogue'?'正在读取课程目录':'正在读取任务点'):'正在读取课程标题'):progress.phase==='cancelled'?'读取已停止':progress.phase==='failed'?'读取中断':(reading?'上次课程读取':'课程列表读取');
     byId(prefix+'Detail').textContent=known?`${done} / ${total} ${reading?(progress.scope==='catalogue'?'目录阶段':'章节'):'课程'}${progress.task_points!==undefined?' · 已发现 '+progress.task_points+' 个任务点':''}${progress.chapter?' · '+progress.chapter:''}`:(progress.chapter||'连接课程页面，等待平台目录…');
     tips();
   }
@@ -133,15 +133,14 @@
     }
     if(!next.chapters.length){const row=element('tr');const cell=element('td','尚未读取课程，或登录 / 页面结构需要处理');cell.colSpan=7;row.append(cell);body.append(row);}
   }
-  async function loadUrl(url) {
+  async function loadUrl(url,courseId=null) {
     if(busy||choosing)return;
-    if(!url){byId('courseDirectoryNote').textContent='请先选择课程，或在主页面输入有效链接。';return;}
+    if(!url&&!courseId){byId('courseDirectoryNote').textContent='请先选择课程，或在主页面输入有效链接。';return;}
     choosing=true;busy=true;
     try {
-      byId('courseUrl').value=url;
-      displayedCourseUrl=url;
+      if(url){byId('courseUrl').value=url;displayedCourseUrl=url;}
       awaitingSetup=true;
-      render(await api('/api/study/load',{url}));
+      render(await api('/api/study/load',courseId?{course_id:courseId}:{url}));
       byId('coursePicker').close();
       byId('studySettings').focus({preventScroll:true});
       byId('studySettings').scrollIntoView({behavior:matchMedia('(prefers-reduced-motion: reduce)').matches?'instant':'smooth',block:'start'});
@@ -150,22 +149,21 @@
   }
   function renderDirectory() {
     if(!directory)return;
-    const courses=directory.courses||[],filter=byId('courseFilter').value,search=byId('courseSearch').value.trim().toLocaleLowerCase();
+    const courses=directory.courses||[],search=byId('courseSearch').value.trim().toLocaleLowerCase();
     liquid('directory',{completed:directory.checked||0,total:directory.total,active:directory.status==='loading',phase:directory.status==='error'?'failed':'done'});
-    const counts={todo:courses.filter(item=>item.platform==='todo').length,unknown:courses.filter(item=>item.platform==='unknown').length};
-    byId('courseDirectoryNote').textContent=`${directory.message||''} · 未完成 ${counts.todo} 门，状态未知 ${counts.unknown} 门`;
+    byId('courseDirectoryNote').textContent=`${directory.message||''} · 共 ${courses.length} 门课程`;
     byId('reloadCourses').disabled=directory.status==='loading'||choosing;
     const list=byId('courseChoices'),scroll=list.scrollTop;list.replaceChildren();
-    for(const course of courses.filter(item=>(filter==='all'||item.platform===filter)&&item.title.toLocaleLowerCase().includes(search))){
+    for(const course of courses.filter(item=>item.title.toLocaleLowerCase().includes(search))){
       const row=element('div',undefined,'course-choice'),info=element('div');
       info.append(element('strong',course.title));
-      const progress=course.total!==null&&course.completed!==null?` · 任务点 ${course.completed} / ${course.total}`:'';
-      info.append(element('p',`${statuses[course.platform]||'未知'}${progress}${course.reason?' · '+course.reason:''}`));
-      const button=element('button',course.url?'选择并读取':'暂无法读取',course.url?'primary':'');
-      button.disabled=!course.url||choosing;
-      button.addEventListener('click',()=>loadUrl(course.url));row.append(info,button);list.append(row);
+      info.append(element('p',course.reason||'选择后读取课程目录，任务点在学习时识别'));
+      const selectable=!!(course.entry||course.url);
+      const button=element('button',selectable?'选择并读取':'暂无法读取',selectable?'primary':'');
+      button.disabled=!selectable||choosing;
+      button.addEventListener('click',()=>course.entry?loadUrl('',course.id):loadUrl(course.url));row.append(info,button);list.append(row);
     }
-    if(!list.children.length)list.append(element('p',directory.status==='loading'?'正在核对课程进度，请稍候…':search?'没有匹配的课程。':filter==='todo'?'没有确认未完成的课程；可切换“状态未知”或“全部课程”查看。':'当前分类没有课程。','hint'));
+    if(!list.children.length)list.append(element('p',directory.status==='loading'?'正在读取课程标题，请稍候…':search?'没有匹配的课程。':'当前没有课程。','hint'));
     list.scrollTop=scroll;
   }
   async function readDirectory(refresh=false) {
@@ -185,7 +183,6 @@
   byId('closePicker').addEventListener('click',()=>byId('coursePicker').close());
   byId('coursePicker').addEventListener('close',()=>{clearTimeout(directoryTimer);tips()});
   byId('reloadCourses').addEventListener('click',()=>{resetTips();readDirectory(true)});
-  byId('courseFilter').addEventListener('change',renderDirectory);
   byId('courseSearch').addEventListener('input',renderDirectory);
   byId('loadTypedUrl').addEventListener('click',()=>loadUrl(byId('courseUrl').value.trim()));
   byId('closeDiscussion').addEventListener('click',()=>byId('discussionEditor').close());
