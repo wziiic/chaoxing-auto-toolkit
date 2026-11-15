@@ -442,9 +442,15 @@ class StudyManager:
         self.log("用户明确核实未提交后，已解除该任务旧提交意图；未自动执行或提交")
 
     def execution_options(self, payload):
+        saved=self.state.get('options') or {}
+        # Older launchers omit newly added controls. Keep the user's saved choices;
+        # an explicit false still disables them.
+        def saved_flag(name):
+            value=payload.get(name)
+            return bool(saved.get(name,False) if value is None else value)
         options = {"auto_fill": bool(payload.get("auto_fill", False)), "auto_submit": bool(payload.get("auto_submit", False)),
-                   "mute": bool(payload.get("mute", False)),
-                   "auto_submit_discussion": bool(payload.get("auto_submit_discussion", False)),
+                   "mute": saved_flag('mute'),
+                   "auto_submit_discussion": saved_flag('auto_submit_discussion'),
                    "manual_policy": payload.get("manual_policy", "pause"), "rate": float(payload.get("rate", 1)),
                    "approved_task_ids": payload.get("approved_task_ids", [])}
         if options["manual_policy"] not in ("pause", "continue") or options["rate"] not in (0.5, 1, 1.25, 1.5, 2):

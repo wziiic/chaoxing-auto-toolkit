@@ -603,6 +603,19 @@ class QueueTests(unittest.TestCase):
             until(lambda:manager.snapshot()['status']=='paused')
             model.assert_not_called();publish.assert_not_called()
 
+    def test_legacy_launcher_preserves_saved_discussion_and_mute_choices(self):
+        manager=self.make_manager(lambda *_:{})
+        task=manager.state['tasks'][0];task.update(kind='video')
+        manager.driver.complete=True
+        manager.command('settings',{'mute':True,'auto_submit_discussion':True})
+        legacy={'auto_fill':True,'auto_submit':True,'rate':1,'manual_policy':'pause','approved_task_ids':[]}
+        manager.command('start',legacy)
+        until(lambda:manager.snapshot()['status']=='needs_attention')
+        self.assertTrue(manager.snapshot()['options']['mute'])
+        self.assertTrue(manager.snapshot()['options']['auto_submit_discussion'])
+        disabled=manager.execution_options(dict(legacy,mute=False,auto_submit_discussion=False))
+        self.assertFalse(disabled['mute']);self.assertFalse(disabled['auto_submit_discussion'])
+
     def test_discussion_missing_topic_invalid_model_and_pending_intent_never_publish(self):
         for case in ('topic','invalid','intent'):
             with self.subTest(case=case):
@@ -1521,6 +1534,9 @@ class ApiTests(unittest.TestCase):
                 self.assertEqual(client.get('/api/study', headers=headers).status_code, 200)
                 response=client.post('/api/study/control',json={'action':'settings','mute':True,'auto_submit_discussion':True},headers=headers)
                 self.assertEqual(response.status_code,200)
+                self.assertTrue(response.json()['options']['mute'])
+                self.assertTrue(response.json()['options']['auto_submit_discussion'])
+                response=client.post('/api/study/control',json={'action':'settings','auto_fill':True,'auto_submit':True,'rate':1,'manual_policy':'pause','approved_task_ids':[]},headers=headers)
                 self.assertTrue(response.json()['options']['mute'])
                 self.assertTrue(response.json()['options']['auto_submit_discussion'])
                 response=client.post('/api/study/control',json={'action':'settings','mute':False},headers=headers)
