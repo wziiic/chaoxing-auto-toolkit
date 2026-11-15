@@ -99,6 +99,12 @@ def main():
         page.get_by_label('播放时静音',exact=True).uncheck()
         page.wait_for_timeout(200)
         assert settings[-1]['mute'] is False
+        assert not page.locator('#autoSubmitDiscussion').is_checked()
+        page.get_by_label('自动提交讨论',exact=True).check()
+        page.wait_for_timeout(200)
+        assert settings[-1]['auto_submit_discussion'] is True
+        page.reload()
+        page.wait_for_function("document.querySelector('#autoSubmitDiscussion').checked")
         page.locator('#openLlmSettings').click()
         page.wait_for_function("!document.querySelector('#saveLlmSettings').disabled")
         page.locator('#cfgModel').fill('fixture-updated-model')

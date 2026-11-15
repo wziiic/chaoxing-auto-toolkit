@@ -575,6 +575,55 @@ class QueueTests(unittest.TestCase):
             self.assertEqual(handler.call_count,1)
         self.assertEqual(manager.driver.submit_count,0)
 
+    def test_global_discussion_option_generates_publishes_and_does_not_repeat(self):
+        model=MagicMock(return_value={'text':'我觉得先让模型更可靠比较重要，少编造内容，用起来才放心。'})
+        manager=self.make_manager(model)
+        task=manager.state['tasks'][0];task.update(kind='discussion')
+        manager.driver.discussion_topic=MagicMock(return_value='未来生成式人工智能最重要的发展方向是什么？为什么？')
+        def publish(driver,task,text,enabled,before):
+            self.assertEqual(text,model.return_value['text']);self.assertTrue(enabled)
+            before();driver.complete=True
+            return {'state':'published','reason':'Fixture verified'}
+        with patch('study_discussion.discussion',side_effect=publish) as handler:
+            manager.command('start',{'auto_submit_discussion':True})
+            until(lambda:manager.snapshot()['status']=='needs_attention')
+            self.assertEqual(task['discussion_state'],'published')
+            self.assertTrue(task['verified'])
+            self.assertIn('口语化',model.call_args.args[0])
+            self.assertIn('未来生成式人工智能',model.call_args.args[0])
+            manager.command('resume',{'auto_submit_discussion':True})
+            until(lambda:manager.snapshot()['status']=='needs_attention')
+            self.assertEqual(handler.call_count,1);self.assertEqual(model.call_count,1)
+
+    def test_discussion_default_off_does_not_generate_or_publish(self):
+        model=MagicMock();manager=self.make_manager(model)
+        manager.state['tasks'][0].update(kind='discussion')
+        with patch('study_discussion.discussion') as publish:
+            manager.command('start')
+            until(lambda:manager.snapshot()['status']=='paused')
+            model.assert_not_called();publish.assert_not_called()
+
+    def test_discussion_missing_topic_invalid_model_and_pending_intent_never_publish(self):
+        for case in ('topic','invalid','intent'):
+            with self.subTest(case=case):
+                model=MagicMock(return_value={'text':''});manager=self.make_manager(model)
+                task=manager.state['tasks'][0];task.update(kind='discussion')
+                manager.driver.discussion_topic=MagicMock(return_value='' if case=='topic' else '讨论大模型的未来发展方向')
+                if case=='intent':manager.store.submission(manager.state['course_id'],task['id'],'prior','discussion_intent')
+                with patch('study_discussion.discussion') as publish:
+                    manager.command('start',{'auto_submit_discussion':True})
+                    until(lambda:manager.snapshot()['status']=='paused')
+                    publish.assert_not_called()
+                    if case!='invalid':model.assert_not_called()
+
+    def test_global_discussion_option_does_not_publish_optional_discussion(self):
+        model=MagicMock();manager=self.make_manager(model)
+        manager.state['tasks'][0].update(kind='discussion',is_task_point=False)
+        with patch('study_discussion.discussion') as publish:
+            manager.command('start',{'auto_submit_discussion':True})
+            until(lambda:manager.snapshot()['status']=='paused')
+            model.assert_not_called();publish.assert_not_called()
+
     def test_legacy_cache_recovers_only_course_link_without_full_scan(self):
         manager=self.make_manager(lambda prompt,config:{'q1':'B'})
         with manager.store.connect() as connection:
@@ -599,7 +648,7 @@ class QueueTests(unittest.TestCase):
         remaining=copy.deepcopy(task)
         remaining.update(id='remaining-task',platform='todo',status='pending',verified=False)
         manager.state['tasks'].append(remaining)
-        manager.command('settings',{'auto_fill':True,'auto_submit':True,'mute':True,'rate':1.5,'task_ids':[task['id'],remaining['id']]})
+        manager.command('settings',{'auto_fill':True,'auto_submit':True,'mute':True,'auto_submit_discussion':True,'rate':1.5,'task_ids':[task['id'],remaining['id']]})
         folder=manager.folder
         course=manager.state['course_id']
         self.assertNotIn('secret',json.dumps(manager.store.latest()))
@@ -616,6 +665,7 @@ class QueueTests(unittest.TestCase):
         self.assertEqual(state['selection'],[task['id'],remaining['id']])
         self.assertEqual(state['options']['rate'],1.5)
         self.assertTrue(state['options']['mute'])
+        self.assertTrue(state['options']['auto_submit_discussion'])
         self.assertEqual(restored.driver.scan_count,0)
         self.assertEqual(restored.driver.submit_count,0)
         restored.driver.complete=True
@@ -1102,6 +1152,34 @@ class BrowserFixtureTests(unittest.TestCase):
         frame=next(f for f in self.page.frames if f.url.endswith('discussion-fixture'))
         self.assertEqual(frame.evaluate('window.posts'),1)
 
+    def test_native_discussion_preview_card_reads_topic_and_opens_editor(self):
+        from study_discussion import discussion,topic
+        html='<!doctype html><meta charset="utf-8"><div class="replyBtn" onclick="document.querySelector(\'#reply\').hidden=false">回复</div><section id="reply" hidden><textarea placeholder="回复话题"></textarea><div class="addReply" onclick="const reply=document.createElement(\'div\');reply.className=\'topicDetail_replyItem\';reply.id=\'new-reply\';const content=document.createElement(\'div\');content.className=\'replyContent\';content.setAttribute(\'content\',this.previousElementSibling.value);content.textContent=this.previousElementSibling.value;reply.append(content);const author=document.createElement(\'span\');author.textContent=\'Fixture author\';reply.prepend(author);this.parentNode.append(reply)">回复</div></section>'
+        html+='<script>const button=document.querySelector(".addReply"),handler=button.onclick;button.onclick=null;setTimeout(()=>button.onclick=handler,900)</script>'
+        self.context.route('**/native-discussion-fixture',lambda route:route.fulfill(content_type='text/html',body=html))
+        self.page.evaluate("""() => {
+          const root=document.createElement('div');root.dataset.studyTaskId='native-discussion';root.dataset.studyKind='discussion';root.dataset.platformState='todo';
+          root.innerHTML=`<div class="PublicCardBox" onclick="window.open('/native-discussion-fixture')"><h3>讨论</h3><p>未来人工智能最重要的发展方向是什么？为什么？</p></div>`;
+          document.body.append(root);
+        }""")
+        task=self.task('native-discussion')
+        self.assertIn('未来人工智能',topic(self.driver,task))
+        intents=[]
+        result=discussion(self.driver,task,'我觉得可靠性很重要，少出错才更实用。',True,lambda:intents.append(1))
+        self.assertEqual(result['state'],'published');self.assertEqual(intents,[1])
+
+    def test_discussion_uses_matching_native_receipt_when_page_does_not_update(self):
+        from study_discussion import discussion
+        html='''<!doctype html><meta charset="utf-8"><textarea></textarea><button onclick="fetch('/pc/invitation/fixture/addReplys',{method:'POST',body:new URLSearchParams({topic_content:this.previousElementSibling.value})})">发表</button>'''
+        self.context.route('**/discussion-response-fixture',lambda route:route.fulfill(content_type='text/html',body=html))
+        self.page.evaluate("""()=>{const root=document.createElement('div');root.dataset.studyTaskId='receipt-discussion';root.dataset.studyKind='discussion';root.dataset.platformState='todo';root.innerHTML='<iframe src="/discussion-response-fixture"></iframe>';document.body.append(root)}""")
+        self.page.frame_locator('iframe[src="/discussion-response-fixture"]').locator('textarea').wait_for()
+        for receipt,expected in [({'status':True,'datas':{'reply':{'uuid':'new-id'}}},'published'),({'status':False,'msg':'回复字数不足'},'rejected'),({'status':True,'datas':None,'msg':'等待审核'},'intent')]:
+            with self.subTest(expected=expected):
+                self.context.route('**/pc/invitation/fixture/addReplys',lambda route,request,data=receipt:route.fulfill(json=data))
+                result=discussion(self.driver,self.task('receipt-discussion'),'我觉得先把可靠性做好，用起来才更放心。',True,lambda:None)
+                self.assertEqual(result['state'],expected)
+
     def test_scan_progress_reports_real_counts_monotonically(self):
         reports=[]
         chapters,tasks,complete=self.driver.scan('fixture',reports.append)
@@ -1441,9 +1519,10 @@ class ApiTests(unittest.TestCase):
                 headers = {'X-Access-Token': 'fixture-token'}
                 self.assertEqual(client.get('/api/study/courses',headers=headers).headers['cache-control'],'no-store')
                 self.assertEqual(client.get('/api/study', headers=headers).status_code, 200)
-                response=client.post('/api/study/control',json={'action':'settings','mute':True},headers=headers)
+                response=client.post('/api/study/control',json={'action':'settings','mute':True,'auto_submit_discussion':True},headers=headers)
                 self.assertEqual(response.status_code,200)
                 self.assertTrue(response.json()['options']['mute'])
+                self.assertTrue(response.json()['options']['auto_submit_discussion'])
                 response=client.post('/api/study/control',json={'action':'settings','mute':False},headers=headers)
                 self.assertFalse(response.json()['options']['mute'])
                 self.assertEqual(client.post('/api/study/load', json={'url':'https://example.com/'}, headers=headers).status_code, 400)

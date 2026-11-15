@@ -30,11 +30,12 @@
       <div class="settings">
         <label><input id="autoFill" type="checkbox"> 自动填写练习题</label>
         <label><input id="autoSubmit" type="checkbox"> 自动提交练习题</label>
+        <label><input id="autoSubmitDiscussion" type="checkbox"> 自动提交讨论</label>
         <label><input id="mutePlayback" type="checkbox"> 播放时静音</label>
         <label>播放速度 <select id="rate"><option value="1">1× 正常速度</option><option value="0.5">0.5×</option><option value="1.25">1.25×</option><option value="1.5">1.5×</option><option value="2">2×</option></select></label>
         <label>遇到需人工处理 <select id="manualPolicy"><option value="pause">暂停队列</option><option value="continue">继续其他可执行任务</option></select></label>
       </div>
-      <p class="hint">题目调用作业面板已有模型配置。开启自动提交后，普通练习不再逐题询问；正式考试仅手动处理。平台未提供所选倍速时自动使用 1×。</p>
+      <p class="hint">练习与讨论使用设置中的模型配置。勾选“自动提交讨论”后，必做讨论会生成简短口语化正文并提交。普通练习开启自动提交后不再逐题询问；正式考试仅手动处理。平台未提供所选倍速时自动使用 1×。</p>
       <div class="row controls"><button id="all" class="primary">开始学习</button><button id="selected">开始选中任务</button><button id="pause">暂停</button><button id="resume">继续上次队列</button><button id="stop" class="danger">停止</button><button id="retry">重试失败 / 核验任务</button><button id="export">导出脱敏记录</button></div>
       <label class="approval"><input id="allowRestricted" type="checkbox"> 我已查看原页面限制，授权当前选中的限次练习（不适用于正式考试）</label>
       <div class="metrics"><div><span>已发现任务点</span><strong id="discovered">0</strong></div><div><span>已核验完成</span><strong id="verified">0</strong></div><div><span>失败</span><strong id="failed">0</strong></div><div><span>需人工处理</span><strong id="manual">0</strong></div><div><span>等待核验</span><strong id="waiting_verification">0</strong></div></div>

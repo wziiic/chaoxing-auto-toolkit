@@ -391,6 +391,7 @@ class StudyControlReq(BaseModel):
     auto_fill: bool = False
     auto_submit: bool = False
     mute: bool = False
+    auto_submit_discussion: bool = False
     rate: float = Field(default=1, ge=0.5, le=2)
     manual_policy: str = "pause"
     approved_task_ids: List[str] = []

@@ -623,6 +623,10 @@ class CourseBrowser:
             self.log("平台未提供所选倍速，已回退到正常速度")
         element.dispose()
 
+    def discussion_topic(self, task):
+        from study_discussion import topic
+        return topic(self, task)
+
     def popup(self, task):
         for frame, root in self.scoped_frames(task):
             try:
