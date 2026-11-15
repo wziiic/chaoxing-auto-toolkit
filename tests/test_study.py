@@ -153,7 +153,7 @@ class FakeBrowser:
     def popup(self, task):
         return False
 
-    def play(self, task, rate):
+    def play(self, task, rate, mute=False):
         self.checkpoint()
         self.play_count += 1
 
@@ -370,6 +370,20 @@ class QueueTests(unittest.TestCase):
         self.assertEqual(manager.driver.submit_count,1)
         manager.driver.continue_embedded.assert_not_called()
 
+    def test_mute_is_passed_to_initial_play_and_quiz_resume(self):
+        for mute in (False, True):
+            with self.subTest(mute=mute):
+                manager=self.make_manager(lambda prompt,config:{})
+                task=manager.state['tasks'][0]
+                task.update(kind='video')
+                manager.worker_epoch=manager.epoch
+                manager.driver.complete=True
+                with patch.object(manager,'resolve_popups',return_value=True), \
+                     patch.object(manager.driver,'popup',side_effect=[True,False]), \
+                     patch.object(manager.driver,'play') as play:
+                    manager.media(task,{'rate':2,'mute':mute})
+                self.assertEqual(play.call_args_list,[unittest.mock.call(task,2,mute=mute),unittest.mock.call(task,1,mute=mute)])
+
     def test_pointer_leave_pause_and_platform_limits_are_specific_and_do_not_replay(self):
         for extra,expected in [({'pause_reason':'pointer_left_window'},'鼠标离开'),({'job_limit':True},'任务数量'),({'time_limit':True},'学习时长')]:
             with self.subTest(extra=extra):
@@ -585,7 +599,7 @@ class QueueTests(unittest.TestCase):
         remaining=copy.deepcopy(task)
         remaining.update(id='remaining-task',platform='todo',status='pending',verified=False)
         manager.state['tasks'].append(remaining)
-        manager.command('settings',{'auto_fill':True,'auto_submit':True,'rate':1.5,'task_ids':[task['id'],remaining['id']]})
+        manager.command('settings',{'auto_fill':True,'auto_submit':True,'mute':True,'rate':1.5,'task_ids':[task['id'],remaining['id']]})
         folder=manager.folder
         course=manager.state['course_id']
         self.assertNotIn('secret',json.dumps(manager.store.latest()))
@@ -601,6 +615,7 @@ class QueueTests(unittest.TestCase):
         self.assertEqual(state['counts']['verified'],1)
         self.assertEqual(state['selection'],[task['id'],remaining['id']])
         self.assertEqual(state['options']['rate'],1.5)
+        self.assertTrue(state['options']['mute'])
         self.assertEqual(restored.driver.scan_count,0)
         self.assertEqual(restored.driver.submit_count,0)
         restored.driver.complete=True
@@ -1031,6 +1046,24 @@ class BrowserFixtureTests(unittest.TestCase):
         self.assertEqual(optional['kind'],'discussion')
         self.assertFalse(optional['is_task_point'])
 
+    def test_mute_is_applied_before_play_and_can_be_disabled_for_video_and_audio(self):
+        self.page.evaluate("""() => {
+          for(const kind of ['video','audio']) {
+            const root=document.createElement('div');root.dataset.studyTaskId='mute-'+kind;
+            root.dataset.studyKind=kind;root.dataset.platformState='todo';
+            const media=document.createElement(kind);media.controls=true;
+            media.play=function(){this.mutedAtPlay=this.muted;return Promise.resolve()};
+            root.append(media);document.body.append(root);
+          }
+        }""")
+        for kind in ('video','audio'):
+            task=self.task('mute-'+kind)
+            media=self.page.locator('[data-study-task-id="mute-'+kind+'"] '+kind)
+            for mute in (True,False,True):
+                with patch.object(self.driver,'media',return_value=media.element_handle()):
+                    self.driver.play(task,1,mute=mute)
+                self.assertEqual(media.evaluate('e=>[e.muted,e.mutedAtPlay]'),[mute,mute])
+
     def test_offscreen_lazy_video_is_scrolled_into_view_and_played(self):
         import base64,io,wave
         buffer=io.BytesIO()
@@ -1408,6 +1441,11 @@ class ApiTests(unittest.TestCase):
                 headers = {'X-Access-Token': 'fixture-token'}
                 self.assertEqual(client.get('/api/study/courses',headers=headers).headers['cache-control'],'no-store')
                 self.assertEqual(client.get('/api/study', headers=headers).status_code, 200)
+                response=client.post('/api/study/control',json={'action':'settings','mute':True},headers=headers)
+                self.assertEqual(response.status_code,200)
+                self.assertTrue(response.json()['options']['mute'])
+                response=client.post('/api/study/control',json={'action':'settings','mute':False},headers=headers)
+                self.assertFalse(response.json()['options']['mute'])
                 self.assertEqual(client.post('/api/study/load', json={'url':'https://example.com/'}, headers=headers).status_code, 400)
                 self.assertEqual(client.post('/api/study/control', json={'action':'start'}, headers=headers).status_code, 409)
 

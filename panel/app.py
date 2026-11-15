@@ -390,6 +390,7 @@ class StudyControlReq(BaseModel):
     task_ids: List[str] = []
     auto_fill: bool = False
     auto_submit: bool = False
+    mute: bool = False
     rate: float = Field(default=1, ge=0.5, le=2)
     manual_policy: str = "pause"
     approved_task_ids: List[str] = []

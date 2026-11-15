@@ -89,6 +89,16 @@ def main():
         page.wait_for_function("document.querySelector('#discovered').textContent==='2'")
         assert page.evaluate(nav_boxes)==desktop_nav, 'Desktop navigation moved between pages'
         assert (page.locator('#reloadPage').bounding_box(),page.locator('#openLlmSettings').bounding_box())==header_controls
+        assert not page.locator('#mutePlayback').is_checked()
+        page.get_by_label('播放时静音',exact=True).check()
+        page.wait_for_function("document.querySelector('#mutePlayback').checked")
+        page.wait_for_timeout(200)
+        assert settings[-1]['mute'] is True
+        page.reload()
+        page.wait_for_function("document.querySelector('#mutePlayback').checked")
+        page.get_by_label('播放时静音',exact=True).uncheck()
+        page.wait_for_timeout(200)
+        assert settings[-1]['mute'] is False
         page.locator('#openLlmSettings').click()
         page.wait_for_function("!document.querySelector('#saveLlmSettings').disabled")
         page.locator('#cfgModel').fill('fixture-updated-model')

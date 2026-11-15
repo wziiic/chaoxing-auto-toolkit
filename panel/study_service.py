@@ -443,6 +443,7 @@ class StudyManager:
 
     def execution_options(self, payload):
         options = {"auto_fill": bool(payload.get("auto_fill", False)), "auto_submit": bool(payload.get("auto_submit", False)),
+                   "mute": bool(payload.get("mute", False)),
                    "manual_policy": payload.get("manual_policy", "pause"), "rate": float(payload.get("rate", 1)),
                    "approved_task_ids": payload.get("approved_task_ids", [])}
         if options["manual_policy"] not in ("pause", "continue") or options["rate"] not in (0.5, 1, 1.25, 1.5, 2):
@@ -612,7 +613,7 @@ class StudyManager:
 
     def media(self, task, options):
         if not self.resolve_popups(task,options):return
-        self.driver.play(task, options["rate"])
+        self.driver.play(task, options["rate"], mute=options.get("mute", False))
         deadline = time.monotonic() + 6 * 60 * 60
         last_progress = time.monotonic()
         last_time = -1
@@ -621,7 +622,7 @@ class StudyManager:
             self.driver.wait(1)
             if self.driver.popup(task):
                 if not self.resolve_popups(task,options):return
-                self.driver.play(task, 1)
+                self.driver.play(task, 1, mute=options.get("mute", False))
                 continue
             state = self.driver.media_state(task)
             if state.get("speed_rejected") and state["rate"] != 1:

@@ -35,7 +35,7 @@
   }
   function message(text, error=false) { byId('message').textContent=text; byId('message').classList.toggle('error',error); }
   function element(tag, text, className) { const node=document.createElement(tag); if(text!==undefined)node.textContent=text; if(className)node.className=className; return node; }
-  function options() { return {auto_fill:byId('autoFill').checked,auto_submit:byId('autoSubmit').checked,rate:Number(byId('rate').value),manual_policy:byId('manualPolicy').value,approved_task_ids:byId('allowRestricted').checked?Array.from(selected):[]}; }
+  function options() { return {auto_fill:byId('autoFill').checked,auto_submit:byId('autoSubmit').checked,mute:byId('mutePlayback').checked,rate:Number(byId('rate').value),manual_policy:byId('manualPolicy').value,approved_task_ids:byId('allowRestricted').checked?Array.from(selected):[]}; }
   function saveSettings() {
     const payload={action:'settings',...options(),task_ids:Array.from(selected)};
     settingsSave=settingsSave.catch(()=>{}).then(()=>api('/api/study/control',payload)).catch(error=>{if(error.name!=='AbortError')message(error.message,true)});
@@ -87,6 +87,7 @@
       for(const id of next.selection||[])selected.add(id);
       const saved=next.options||{};
       byId('autoFill').checked=!!saved.auto_fill;byId('autoSubmit').checked=!!saved.auto_submit;
+      byId('mutePlayback').checked=!!saved.mute;
       byId('rate').value=String(saved.rate||1);byId('manualPolicy').value=saved.manual_policy||'pause';
       byId('allowRestricted').checked=!!saved.approved_task_ids?.length&&saved.approved_task_ids.every(id=>selected.has(id));
       if(next.loaded)byId('setupNote').textContent='已保留上次课程和设置，可直接开始或继续。仅手动读取或刷新时重新扫描目录。';
@@ -217,7 +218,7 @@
   byId('all').addEventListener('click',()=>startLearning([]));
   byId('selected').addEventListener('click',()=>selected.size?startLearning(Array.from(selected)):message('请先选择任务',true));
   for(const action of ['pause','resume','stop','retry'])byId(action).addEventListener('click',()=>command(action));
-  for(const id of ['autoFill','autoSubmit','rate','manualPolicy','allowRestricted'])byId(id).addEventListener('change',async()=>{if(state?.status==='running')await command('pause');await saveSettings()});
+  for(const id of ['autoFill','autoSubmit','mutePlayback','rate','manualPolicy','allowRestricted'])byId(id).addEventListener('change',async()=>{if(state?.status==='running')await command('pause');await saveSettings()});
   byId('selectAll').addEventListener('change',event=>{selected.clear();if(event.target.checked)for(const task of state?.tasks||[])selected.add(task.id);if(state)render(state);saveSettings()});
   byId('export').addEventListener('click',async()=>{try{const result=await api('/api/study/export');const url=URL.createObjectURL(new Blob([JSON.stringify(result,null,2)],{type:'application/json'}));const link=element('a');link.href=url;link.download='课程执行记录.json';link.click();URL.revokeObjectURL(url);}catch(error){message(error.message,true)}});
   async function poll(){try{render(await api('/api/study'));}catch(error){if(error.name!=='AbortError'){byId('connection').textContent='连接失败';message(error.message,true);}}finally{if(!controller.signal.aborted)timer=setTimeout(poll,1500);}}
