@@ -205,6 +205,7 @@
       <label class="preference-row"><span>默认打开的浏览器<small>Chrome / Edge 同时用于新建课程窗口；系统默认和其他浏览器用于打开面板，课程内核自动选择。</small></span><select id="prefBrowser"><option value="system">系统默认浏览器</option><option value="chrome">Google Chrome</option><option value="edge">Microsoft Edge</option><option value="custom">其他浏览器（自定义路径）</option></select></label>
       <label id="customBrowserRow" class="preference-row" hidden><span>浏览器程序路径<small>填写浏览器 .exe 完整路径，不附加参数。</small></span><input id="prefBrowserPath" type="text" placeholder="C:\Program Files\浏览器\browser.exe" autocomplete="off"></label>
       <p id="browserNotice" class="hint" role="status">正在读取浏览器设置…</p>
+      <label class="preference-row"><span>课程窗口网络连接<small>平台内容加载慢时可尝试直连，仅对新建课程窗口生效，不修改系统代理。需要校园代理的网络请保留跟随系统。</small></span><select id="prefCourseNetwork"><option value="system">跟随系统网络设置</option><option value="direct">直连（不经过系统代理）</option></select></label>
       <label class="preference-row"><span>启动时自动读取课程<small>打开面板后读取课程列表，不会自动开始学习或提交。</small></span><input id="prefAutoRead" type="checkbox"></label>
       <label class="preference-row"><span>启动时打开的页面</span><select id="prefStartPage"><option value="current">跟随打开地址</option><option value="last">上次使用的页面</option><option value="works">作业面板</option><option value="study">课程学习</option></select></label>
       <label class="preference-row"><span>恢复上次课程搜索和筛选</span><input id="prefRememberFilters" type="checkbox"></label>

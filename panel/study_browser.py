@@ -72,6 +72,7 @@ class CourseBrowser:
         self.action_lock = None
         self.headless = True
         self.embedded_receipts = {}
+        self.network_issue = None
 
     def perform(self, action):
         with self.action_lock if self.action_lock is not None else nullcontext():
@@ -105,7 +106,34 @@ class CourseBrowser:
             self.page.set_default_timeout(4000)
             self.page.on("dialog", self._dialog)
             self.page.on("pageerror", lambda error: self.diagnostic("课程页面脚本报错；如影响播放，请在课程窗口检查，错误未被屏蔽"))
-            self.page.on("requestfailed", lambda request: self.diagnostic("课程窗口出现网络请求失败；若媒体缓冲或目录缺失，请检查连接"))
+            self.page.on("requestfailed", self.request_failed)
+
+    def request_failed(self, request):
+        failure = request.failure or ''
+        match = re.search(r'net::ERR_[A-Z_]+', failure)
+        if not match or match.group() == 'net::ERR_ABORTED':
+            return
+        # Never retain a signed URL, request headers or response bodies.
+        code = match.group()
+        host = urlsplit(request.url).hostname or '未知主机'
+        kind = request.resource_type
+        if kind in ('document', 'script', 'stylesheet', 'xhr', 'fetch', 'media'):
+            self.network_issue = (time.monotonic(), code, host)
+        self.diagnostic(f'课程资源加载失败：{host}（{kind}，{code}）')
+
+    def loading_error(self, message):
+        if not self.network_issue or time.monotonic() - self.network_issue[0] > 120:
+            return message
+        _, code, host = self.network_issue
+        if code == 'net::ERR_NETWORK_CHANGED':
+            hint = '网络连接发生变化，请待 VPN、代理或网卡稳定后手动继续'
+        elif code in ('net::ERR_PROXY_CONNECTION_FAILED', 'net::ERR_TUNNEL_CONNECTION_FAILED'):
+            hint = '代理连接失败，可检查代理或在启动设置中尝试课程窗口直连'
+        elif code == 'net::ERR_NAME_NOT_RESOLVED':
+            hint = '域名解析失败，请检查 DNS 或网络连接'
+        else:
+            hint = '请检查该平台资源的网络连接'
+        return f'{message}；最近失败资源：{host}（{code}），{hint}'
 
     def assistant_script(self, route):
         # This optional tutor SDK can block HTML parsing for over a minute.
@@ -181,15 +209,18 @@ class CourseBrowser:
 
     def goto(self, url):
         self.checkpoint()
+        self.network_issue = None
         parts = urlsplit(url)
         if parts.scheme != "https" or not (parts.hostname or "").endswith(".chaoxing.com"):
             raise StudyError("导航目标不是允许的学习通课程页面")
-        from playwright.sync_api import TimeoutError as NavigationTimeout
+        from playwright.sync_api import Error as NavigationError, TimeoutError as NavigationTimeout
         course_page = parts.path == "/mycourse/studentstudy"
         try:
             response = self.page.goto(url, wait_until="commit" if course_page else "domcontentloaded", timeout=25000)
         except NavigationTimeout as error:
-            raise StudyError("课程页面连接超时，请检查系统代理、网络和平台可用性；已保留课程记录") from error
+            raise StudyError(self.loading_error("课程页面连接超时，请检查系统代理、网络和平台可用性；已保留课程记录")) from error
+        except NavigationError as error:
+            raise StudyError(self.loading_error("课程页面连接失败，尚未读取课程内容；已保留课程记录")) from error
         if response and response.status >= 400:
             raise StudyError("课程导航返回 HTTP " + str(response.status) + "，可能登录失效、网络失败或访问被限制；请在课程窗口检查")
         if course_page:
@@ -197,6 +228,9 @@ class CourseBrowser:
             until = time.monotonic() + self.navigation_ready_timeout
             while True:
                 self.checkpoint()
+                current_host = urlsplit(self.page.url).hostname or ''
+                if current_host.startswith('passport') and current_host.endswith('.chaoxing.com'):
+                    raise StudyError('登录失效，已跳转到平台登录页；请在课程窗口登录后重新读取')
                 samples, _ = self.snapshots()
                 current = urlsplit(self.page.url)
                 actual = {k.lower(): v[0] for k, v in parse_qs(current.query).items()}
@@ -208,7 +242,7 @@ class CourseBrowser:
                 if any(chapter.get('id') for chapter in main.get('chapters', [])) and not main.get('catalog_loading'):
                     break
                 if time.monotonic() >= until:
-                    raise StudyError("课程目录加载超时，页面尚未就绪；请检查系统代理或平台连接后继续，任务未计为完成")
+                    raise StudyError(self.loading_error("课程目录加载超时，页面尚未就绪；请检查系统代理或平台连接后继续，任务未计为完成"))
                 self.wait(.25)
         self.checkpoint()
 
@@ -279,7 +313,7 @@ class CourseBrowser:
                 return samples, failures
             if time.monotonic() >= until:
                 if pending:
-                    raise StudyError("章节内容仍未加载完成，请检查网络或系统代理后继续；尚未判断任务状态，也未计为完成")
+                    raise StudyError(self.loading_error("章节内容仍未加载完成，请检查网络或系统代理后继续；尚未判断任务状态，也未计为完成"))
                 return samples, failures
             previous = signature
             attempt += 1

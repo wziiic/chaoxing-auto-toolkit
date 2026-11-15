@@ -75,6 +75,8 @@ def launch_chromium(pw, headless=True, standard_automation=False):
     for channel in channels:
         try:
             kwargs = {"headless": headless, "args": args}
+            if standard_automation and browser_preferences.read_preferences().get('course_network') == 'direct':
+                kwargs['proxy'] = {'server': 'direct://'}
             if channel:
                 kwargs["channel"] = channel
             return pw.chromium.launch(**kwargs)

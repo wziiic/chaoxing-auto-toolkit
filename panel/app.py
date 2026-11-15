@@ -65,7 +65,7 @@ DEFAULT_CONFIG = {
     },
     "auto_submit": False,          # 默认只暂存，不交卷
     "default_skip_judge": False,
-    "browser": {"choice": "system", "custom_path": ""},
+    "browser": dict(browser_preferences.DEFAULT),
 }
 
 app = FastAPI(title="学习通作业面板", version="1.0")
@@ -345,6 +345,7 @@ class ConfigReq(BaseModel):
 class BrowserReq(BaseModel):
     choice: str
     custom_path: str = ""
+    course_network: str = "system"
 
 
 # ---------------------------------------------------------------- 路由
@@ -469,7 +470,7 @@ def get_browser_settings():
 @app.post("/api/browser-settings")
 def set_browser_settings(req: BrowserReq):
     try:
-        preferences = browser_preferences.normalize({"choice": req.choice, "custom_path": req.custom_path})
+        preferences = browser_preferences.normalize({"choice": req.choice, "custom_path": req.custom_path, "course_network": req.course_network})
     except ValueError as error:
         raise HTTPException(status_code=400, detail=str(error)) from error
     cfg = load_config()
