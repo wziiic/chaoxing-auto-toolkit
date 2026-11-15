@@ -83,11 +83,13 @@ def main():
         page.locator('#prefBrowser').select_option('custom')
         assert page.locator('#prefBrowserPath').is_visible()
         page.locator('#prefBrowser').select_option('edge')
+        page.locator('#prefCourseNetwork').select_option('direct')
         assert not page.locator('#prefBrowserPath').is_visible()
         page.locator('#prefAutoRead').check();page.locator('#prefStartPage').select_option('study')
         page.locator('#prefLoadingTips').uncheck();page.locator('#saveStartupSettings').click()
         page.wait_for_function('document.querySelector("#startupNotice").textContent.startsWith("已保存")')
         assert browser_settings['preferences']['choice']=='edge'
+        assert browser_settings['preferences']['course_network']=='direct'
         assert page.evaluate('getPanelPreferences().auto_read_courses')
         assert not page.evaluate('getPanelPreferences().loading_tips')
         assert len(reads)==2, 'Saving startup settings must not start a read immediately'
@@ -101,6 +103,7 @@ def main():
         assert len(reads)==3
         second.locator('#openLlmSettings').click();second.locator('#startupTab').click()
         second.wait_for_function('document.querySelector("#prefBrowser").value==="edge"')
+        assert second.locator('#prefCourseNetwork').input_value()=='direct'
         assert second.locator('#prefAutoRead').is_checked()
         assert second.locator('#prefStartPage').input_value()=='study'
         assert not errors, errors

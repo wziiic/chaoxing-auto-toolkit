@@ -7,7 +7,7 @@ import subprocess
 import webbrowser
 
 CONFIG_PATH = Path(__file__).resolve().parent / 'panel' / 'config.json'
-DEFAULT = {'choice': 'system', 'custom_path': ''}
+DEFAULT = {'choice': 'system', 'custom_path': '', 'course_network': 'system'}
 
 
 def executable(choice):
@@ -41,12 +41,15 @@ def normalize(value):
     if not isinstance(value, dict) or value.get('choice') not in ('system', 'chrome', 'edge', 'custom'):
         raise ValueError('请选择系统默认、Chrome、Edge 或自定义浏览器')
     path = str(value.get('custom_path') or '').strip().strip('"')
+    network = value.get('course_network', 'system')
+    if network not in ('system', 'direct'):
+        raise ValueError('课程网络请选择跟随系统或直连')
     if value['choice'] == 'custom':
         if not Path(path).is_absolute() or Path(path).suffix.lower() != '.exe' or not Path(path).is_file():
             raise ValueError('请填写已安装浏览器的完整 .exe 路径，不要附加启动参数')
     elif value['choice'] in ('chrome', 'edge') and not executable(value['choice']):
         raise ValueError('未找到所选浏览器，请先安装，或使用自定义浏览器路径')
-    return {'choice': value['choice'], 'custom_path': path}
+    return {'choice': value['choice'], 'custom_path': path, 'course_network': network}
 
 
 def read_preferences():

@@ -10,5 +10,5 @@
   "temperature": 0
  },
  "auto_submit": false,
- "browser": {"choice": "system", "custom_path": ""}
+ "browser": {"choice": "system", "custom_path": "", "course_network": "system"}
 }

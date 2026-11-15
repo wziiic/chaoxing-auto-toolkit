@@ -66,6 +66,7 @@
       const data=await request('/api/browser-settings');
       node('prefBrowser').value=data.preferences.choice;
       node('prefBrowserPath').value=data.preferences.custom_path||'';toggleBrowserPath();
+      node('prefCourseNetwork').value=data.preferences.course_network||'system';
       node('browserNotice').textContent=`本机检测：Chrome ${data.available.chrome?'已安装':'未找到'} · Edge ${data.available.edge?'已安装':'未找到'}。切换不会中断当前课程。`;
       browserReady=true;
     }catch(error){node('browserNotice').textContent='读取浏览器设置失败：'+error.message;}
@@ -75,7 +76,7 @@
     if(!browserReady||node('saveStartupSettings').disabled)return;
     node('saveStartupSettings').disabled=true;
     try{
-      await request('/api/browser-settings',{choice:node('prefBrowser').value,custom_path:node('prefBrowserPath').value});
+      await request('/api/browser-settings',{choice:node('prefBrowser').value,custom_path:node('prefBrowserPath').value,course_network:node('prefCourseNetwork').value});
       localStorage.setItem(preferenceKey,JSON.stringify({auto_read_courses:node('prefAutoRead').checked,start_page:node('prefStartPage').value,
         remember_filters:node('prefRememberFilters').checked,loading_tips:node('prefLoadingTips').checked,confirm_reload:node('prefConfirmReload').checked}));
       window.dispatchEvent(new Event('panelpreferenceschange'));

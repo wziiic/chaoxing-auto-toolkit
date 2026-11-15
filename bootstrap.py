@@ -18,6 +18,7 @@ import importlib.util
 import os
 import subprocess
 import sys
+from windows_process import background_options
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
@@ -62,7 +63,7 @@ def pip_install(extra_args=None):
     print("   " + " ".join(cmd), flush=True)
     r = subprocess.run(cmd, capture_output=True, text=True,
                        encoding="utf-8", errors="ignore",
-                       creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
+                       **background_options())
     return r.returncode == 0, (r.stdout or "") + (r.stderr or "")
 
 
@@ -150,7 +151,7 @@ def launch_panel():
         _bad(f"找不到 {app}")
         return 1
     print("   启动后会自动打开浏览器，黑窗口请勿关闭\n", flush=True)
-    return subprocess.call([sys.executable, app], cwd=HERE)
+    return subprocess.call([sys.executable, app], cwd=HERE, **background_options())
 
 
 def main():

@@ -22,6 +22,7 @@ import sqlite3
 import tempfile
 import time
 from ctypes import wintypes
+from windows_process import background_options
 
 from Crypto.Cipher import AES
 from playwright.sync_api import sync_playwright
@@ -174,9 +175,9 @@ def main():
         import subprocess, sys
         py = sys.executable
         subprocess.run([py, os.path.join(HERE, "lxt.py"), "loadhtml", "--url", final], check=False,
-                       creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
+                       **background_options())
         subprocess.run([py, os.path.join(HERE, "lxt.py"), "parse"], check=False,
-                       creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
+                       **background_options())
 
         ctx.close()
         browser.close()

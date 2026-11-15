@@ -43,6 +43,7 @@ sys.path.insert(0, ROOT)
 
 import lxt  # noqa: E402  复用 Cookie 解密 / 表单提取 / 题目解析
 import browser_preferences
+from windows_process import background_options
 sys.path.insert(0, HERE)
 
 PY = sys.executable
@@ -65,7 +66,7 @@ DEFAULT_CONFIG = {
     },
     "auto_submit": False,          # 默认只暂存，不交卷
     "default_skip_judge": False,
-    "browser": {"choice": "system", "custom_path": ""},
+    "browser": dict(browser_preferences.DEFAULT),
 }
 
 app = FastAPI(title="学习通作业面板", version="1.0")
@@ -114,7 +115,7 @@ def run_script(args: List[str], timeout: int = 900) -> Dict[str, Any]:
     """跑 lxt-auto 下的脚本，返回 {code, out}。"""
     r = subprocess.run([PY] + args, cwd=ROOT, capture_output=True, text=True,
                        encoding="utf-8", errors="ignore", timeout=timeout,
-                       creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
+                       **background_options())
     return {"code": r.returncode, "out": (r.stdout or "") + (r.stderr or "")}
 
 
@@ -345,6 +346,7 @@ class ConfigReq(BaseModel):
 class BrowserReq(BaseModel):
     choice: str
     custom_path: str = ""
+    course_network: str = "system"
 
 
 # ---------------------------------------------------------------- 路由
@@ -469,7 +471,7 @@ def get_browser_settings():
 @app.post("/api/browser-settings")
 def set_browser_settings(req: BrowserReq):
     try:
-        preferences = browser_preferences.normalize({"choice": req.choice, "custom_path": req.custom_path})
+        preferences = browser_preferences.normalize({"choice": req.choice, "custom_path": req.custom_path, "course_network": req.course_network})
     except ValueError as error:
         raise HTTPException(status_code=400, detail=str(error)) from error
     cfg = load_config()

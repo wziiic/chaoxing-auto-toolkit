@@ -70,6 +70,8 @@ def launch_chromium(pw, headless=True, standard_automation=False):
     `python -m playwright install chromium` 也能跑。
     """
     args = [] if standard_automation else ["--disable-blink-features=AutomationControlled"]
+    if standard_automation and browser_preferences.read_preferences().get('course_network') == 'direct':
+        args.append('--no-proxy-server')
     last = None
     channels = browser_preferences.course_channels()
     for channel in channels:

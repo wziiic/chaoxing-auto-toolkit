@@ -17,6 +17,8 @@ import sys
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.dirname(HERE)
+sys.path.insert(0, ROOT)
+from windows_process import background_options
 
 
 def desktop_dir() -> str:
@@ -26,7 +28,7 @@ def desktop_dir() -> str:
          "[Console]::OutputEncoding = [System.Text.Encoding]::UTF8; "
          "[Environment]::GetFolderPath('Desktop')"],
         capture_output=True, text=True, encoding="utf-8", errors="ignore",
-        creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
+        **background_options())
     d = (out.stdout or "").strip()
     return d or os.path.join(os.path.expanduser("~"), "Desktop")
 
@@ -80,7 +82,7 @@ def create_shortcut(name="学习通面板", target=None, icon=None, overwrite=Tr
     r = subprocess.run(["powershell", "-NoProfile", "-NonInteractive", "-WindowStyle", "Hidden", "-Command", ps],
                        capture_output=True, text=True, encoding="utf-8",
                        errors="ignore", env=env,
-                       creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
+                       **background_options())
     if r.returncode != 0 or not os.path.exists(lnk):
         raise RuntimeError(f"创建快捷方式失败: {(r.stderr or r.stdout or '')[:200]}")
     notify = ctypes.windll.shell32.SHChangeNotify

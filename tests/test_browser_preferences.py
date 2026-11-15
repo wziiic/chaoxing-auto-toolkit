@@ -69,6 +69,19 @@ class BrowserPreferencesTests(unittest.TestCase):
         with patch.object(browsers, 'read_preferences', return_value={'choice': 'custom'}):
             self.assertEqual(browsers.course_channels(), ('chrome', 'msedge', None))
 
+    def test_course_direct_uses_native_switch_and_does_not_change_other_launches(self):
+        runtime=Mock()
+        with patch.object(browsers,'read_preferences',return_value={'choice':'edge','course_network':'direct'}):
+            lxt.launch_chromium(runtime,standard_automation=True)
+            self.assertEqual(runtime.chromium.launch.call_args.kwargs['args'],['--no-proxy-server'])
+            self.assertNotIn('proxy',runtime.chromium.launch.call_args.kwargs)
+            lxt.launch_chromium(runtime,standard_automation=False)
+            self.assertNotIn('--no-proxy-server',runtime.chromium.launch.call_args.kwargs['args'])
+
+    def test_network_selection_is_validated(self):
+        self.assertEqual(browsers.normalize({'choice':'system','course_network':'direct'})['course_network'],'direct')
+        with self.assertRaises(ValueError):browsers.normalize({'choice':'system','course_network':'invalid'})
+
 
 if __name__ == '__main__':
     unittest.main()

@@ -150,9 +150,16 @@ class CourseBrowser:
     def show_window(self):
         from study_directory import LIST_URL, platform_url
         current = self.page.url if self.page and not self.page.is_closed() else ""
+        target = current if platform_url(current) else self.url or LIST_URL
+        if platform_url(self.url or '', {'/mycourse/studentstudy'}):
+            expected = {key.lower(): value[0] for key, value in parse_qs(urlsplit(self.url).query).items()}
+            actual = {key.lower(): value[0] for key, value in parse_qs(urlsplit(current).query).items()}
+            if (not platform_url(current, {'/mycourse/studentstudy'}) or
+                    any(expected.get(key) != actual.get(key) for key in ('courseid', 'clazzid'))):
+                target = self.url
         self.ensure_session(visible=True)
-        if self.page.url == "about:blank":
-            self.goto(current if platform_url(current) else self.url or LIST_URL)
+        if self.page.url == "about:blank" or target != current:
+            self.goto(target)
         self.window_state("normal")
         self.page.bring_to_front()
 
