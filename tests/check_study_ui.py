@@ -49,7 +49,6 @@ def main():
                 route.fulfill(json={'ok':True})
             else:route.fulfill(json=config)
         context.route('**/api/config',config_route)
-        context.route('**/api/browser-settings',lambda route:route.fulfill(json={'preferences':{'choice':'system','custom_path':''},'available':{'chrome':True,'edge':True}}))
         context.route('**/api/testllm',lambda route:route.fulfill(json={'ok':True,'model':config['llm']['model'],'latency':0.1}))
         context.route('**/study-assets/llm-settings.js',lambda route:route.fulfill(content_type='text/javascript',body=(ROOT/'panel/static/llm-settings.js').read_text(encoding='utf-8')))
         context.route('**/api/works?**', lambda route: route.fulfill(json={"works": []}))

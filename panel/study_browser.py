@@ -72,12 +72,6 @@ class CourseBrowser:
         self.action_lock = None
         self.headless = True
         self.embedded_receipts = {}
-        self.network_issue = None
-        self.session_store = None
-        self.last_storage = None
-        self.last_session_save = 0
-        self.session_dirty = False
-        self.session_warning = False
 
     def perform(self, action):
         with self.action_lock if self.action_lock is not None else nullcontext():
@@ -87,102 +81,31 @@ class CourseBrowser:
     def ensure_session(self, visible=False):
         from playwright.sync_api import sync_playwright
         if self.page is None or self.page.is_closed() or self.headless != (not visible):
-            storage = self.capture_session(force=True) if self.context else self.last_storage
-            self.close(save_session=False)
-            if storage is None and self.session_store:
-                try:
-                    storage = self.session_store.load()
-                except Exception:
-                    self.log('本机保存的登录会话无法读取，将尝试桌面端会话；必要时请重新登录一次')
+            try:
+                storage = self.context.storage_state() if self.context else None
+            except Exception:
+                storage = None
+            self.close()
             self.runtime = sync_playwright().start()
             self.headless = not visible
             self.browser = lxt.launch_chromium(self.runtime, headless=self.headless, standard_automation=True)
-            self.context = self.browser.new_context(viewport={"width": 1400, "height": 900}, **({"storage_state": storage} if storage is not None else {}))
+            self.context = self.browser.new_context(viewport={"width": 1400, "height": 900}, **({"storage_state": storage} if storage else {}))
             self.context.add_init_script(MEDIA_GUARD_SCRIPT)
             self.context.route(re.compile(r"^https?://robot-lc\.chaoxing\.com/sdk/CxRobotSdkJs\.js(?:\?.*)?$"), self.assistant_script)
             try:
-                cookies = [] if storage is not None else [cookie for cookie in lxt.load_cookies_for_browser()
+                cookies = [] if storage else [cookie for cookie in lxt.load_cookies_for_browser()
                            if cookie["domain"].lstrip(".").endswith("chaoxing.com")
                            and (cookie.get("expires", -1) == -1 or cookie["expires"] > time.time())]
-                if storage is None:
+                if not storage:
                     self.context.add_cookies(cookies)
-                self.log("已恢复本机保存的登录会话；有效性仍以平台反馈为准" if storage is not None else "已复用桌面端会话；若失效，请点击打开课程窗口登录后刷新")
+                self.log("已保留当前登录会话" if storage else "已复用桌面端会话；若失效，请点击打开课程窗口登录后刷新")
             except (Exception, SystemExit):
                 self.log("未能读取桌面登录态；请点击打开课程窗口登录，再刷新课程")
             self.page = self.context.new_page()
             self.page.set_default_timeout(4000)
             self.page.on("dialog", self._dialog)
             self.page.on("pageerror", lambda error: self.diagnostic("课程页面脚本报错；如影响播放，请在课程窗口检查，错误未被屏蔽"))
-            self.page.on("requestfailed", self.request_failed)
-            self.page.on('framenavigated', lambda frame: self.mark_session_dirty())
-            self.session_dirty = True
-            self.capture_session(force=True)
-
-    def mark_session_dirty(self):
-        self.session_dirty = True
-
-    def capture_session(self, force=False):
-        if not self.context:
-            return self.last_storage
-        now = time.monotonic()
-        if not force and now - self.last_session_save < (2 if self.session_dirty else 20):
-            return self.last_storage
-        self.last_session_save = now
-        try:
-            # Tests and legacy callers without a store still transfer state in memory.
-            if self.session_store:
-                from study_session import platform_storage
-                try:
-                    captured = self.context.storage_state(indexed_db=True)
-                except TypeError:
-                    # Older supported Playwright versions lack IndexedDB export.
-                    captured = self.context.storage_state()
-                storage = platform_storage(captured)
-                self.session_store.save(storage)
-            else:
-                storage = self.context.storage_state()
-            self.last_storage = storage
-            self.session_dirty = False
-            self.session_warning = False
-        except Exception:
-            if self.session_store and not self.session_warning:
-                self.log('登录会话自动保存失败，已有保存不会被覆盖；本次退出后可能需要重新登录')
-                self.session_warning = True
-        return self.last_storage
-
-    def maintain_session(self):
-        if not self.page or self.page.is_closed():
-            return
-        # Pump native login/navigation events even while the queue is paused.
-        self.page.wait_for_timeout(40)
-        self.capture_session()
-
-    def request_failed(self, request):
-        failure = request.failure or ''
-        match = re.search(r'net::ERR_[A-Z_]+', failure)
-        if not match or match.group() == 'net::ERR_ABORTED':
-            return
-        # Never retain a signed URL, request headers or response bodies.
-        code = match.group()
-        host = urlsplit(request.url).hostname or '未知主机'
-        kind = request.resource_type
-        if kind in ('document', 'script', 'stylesheet', 'xhr', 'fetch', 'media'):
-            self.network_issue = (time.monotonic(), code, host)
-        self.diagnostic(f'课程资源加载失败：{host}（{kind}，{code}）')
-
-    def loading_error(self, message):
-        if not self.network_issue or time.monotonic() - self.network_issue[0] > 120:
-            return message
-        _, code, host = self.network_issue
-        if code == 'net::ERR_NETWORK_CHANGED':
-            hint = '网络连接发生变化，请待 VPN、代理或网卡稳定后手动继续'
-        elif code in ('net::ERR_PROXY_CONNECTION_FAILED', 'net::ERR_TUNNEL_CONNECTION_FAILED'):
-            hint = '代理连接失败，可检查代理或在启动设置中尝试课程窗口直连'
-        elif code == 'net::ERR_NAME_NOT_RESOLVED':
-            hint = '域名解析失败，请检查 DNS 或网络连接'
-        else:
-            hint = '请检查该平台资源的网络连接'
-        return f'{message}；最近失败资源：{host}（{code}），{hint}'
+            self.page.on("requestfailed", lambda request: self.diagnostic("课程窗口出现网络请求失败；若媒体缓冲或目录缺失，请检查连接"))
 
     def assistant_script(self, route):
         # This optional tutor SDK can block HTML parsing for over a minute.
@@ -258,18 +181,15 @@ class CourseBrowser:
 
     def goto(self, url):
         self.checkpoint()
-        self.network_issue = None
         parts = urlsplit(url)
         if parts.scheme != "https" or not (parts.hostname or "").endswith(".chaoxing.com"):
             raise StudyError("导航目标不是允许的学习通课程页面")
-        from playwright.sync_api import Error as NavigationError, TimeoutError as NavigationTimeout
+        from playwright.sync_api import TimeoutError as NavigationTimeout
         course_page = parts.path == "/mycourse/studentstudy"
         try:
             response = self.page.goto(url, wait_until="commit" if course_page else "domcontentloaded", timeout=25000)
         except NavigationTimeout as error:
-            raise StudyError(self.loading_error("课程页面连接超时，请检查系统代理、网络和平台可用性；已保留课程记录")) from error
-        except NavigationError as error:
-            raise StudyError(self.loading_error("课程页面连接失败，尚未读取课程内容；已保留课程记录")) from error
+            raise StudyError("课程页面连接超时，请检查系统代理、网络和平台可用性；已保留课程记录") from error
         if response and response.status >= 400:
             raise StudyError("课程导航返回 HTTP " + str(response.status) + "，可能登录失效、网络失败或访问被限制；请在课程窗口检查")
         if course_page:
@@ -277,9 +197,6 @@ class CourseBrowser:
             until = time.monotonic() + self.navigation_ready_timeout
             while True:
                 self.checkpoint()
-                current_host = urlsplit(self.page.url).hostname or ''
-                if current_host.startswith('passport') and current_host.endswith('.chaoxing.com'):
-                    raise StudyError('登录失效，已跳转到平台登录页；请在课程窗口登录后重新读取')
                 samples, _ = self.snapshots()
                 current = urlsplit(self.page.url)
                 actual = {k.lower(): v[0] for k, v in parse_qs(current.query).items()}
@@ -291,7 +208,7 @@ class CourseBrowser:
                 if any(chapter.get('id') for chapter in main.get('chapters', [])) and not main.get('catalog_loading'):
                     break
                 if time.monotonic() >= until:
-                    raise StudyError(self.loading_error("课程目录加载超时，页面尚未就绪；请检查系统代理或平台连接后继续，任务未计为完成"))
+                    raise StudyError("课程目录加载超时，页面尚未就绪；请检查系统代理或平台连接后继续，任务未计为完成")
                 self.wait(.25)
         self.checkpoint()
 
@@ -300,7 +217,6 @@ class CourseBrowser:
         while time.monotonic() < until:
             self.checkpoint()
             self.page.wait_for_timeout(min(200, max(1, int((until - time.monotonic()) * 1000))))
-        self.capture_session()
 
     def snapshots(self):
         self.checkpoint()
@@ -363,7 +279,7 @@ class CourseBrowser:
                 return samples, failures
             if time.monotonic() >= until:
                 if pending:
-                    raise StudyError(self.loading_error("章节内容仍未加载完成，请检查网络或系统代理后继续；尚未判断任务状态，也未计为完成"))
+                    raise StudyError("章节内容仍未加载完成，请检查网络或系统代理后继续；尚未判断任务状态，也未计为完成")
                 return samples, failures
             previous = signature
             attempt += 1
@@ -1063,10 +979,8 @@ class CourseBrowser:
         # Recheck on subsequent calls because reaching the bottom can load more pages.
         return self.scroll_reading_area(task)
 
-    def close(self, save_session=True):
+    def close(self):
         self.embedded_receipts.clear()
-        if save_session:
-            self.capture_session(force=True)
         try:
             if self.browser:
                 self.browser.close()

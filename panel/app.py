@@ -42,7 +42,6 @@ ROOT = os.path.dirname(HERE)          # lxt-auto/
 sys.path.insert(0, ROOT)
 
 import lxt  # noqa: E402  复用 Cookie 解密 / 表单提取 / 题目解析
-import browser_preferences
 sys.path.insert(0, HERE)
 
 PY = sys.executable
@@ -65,7 +64,6 @@ DEFAULT_CONFIG = {
     },
     "auto_submit": False,          # 默认只暂存，不交卷
     "default_skip_judge": False,
-    "browser": dict(browser_preferences.DEFAULT),
 }
 
 app = FastAPI(title="学习通作业面板", version="1.0")
@@ -342,12 +340,6 @@ class ConfigReq(BaseModel):
     auto_submit: Optional[bool] = None
 
 
-class BrowserReq(BaseModel):
-    choice: str
-    custom_path: str = ""
-    course_network: str = "system"
-
-
 # ---------------------------------------------------------------- 路由
 
 @app.get("/")
@@ -459,24 +451,6 @@ def get_config():
     cfg["llm"]["api_key"] = "" if key else ""
     cfg["llm"]["has_key"] = bool(key)
     return cfg
-
-
-@app.get("/api/browser-settings")
-def get_browser_settings():
-    return {"preferences": {**browser_preferences.DEFAULT, **load_config().get("browser", {})},
-            "available": {name: bool(browser_preferences.executable(name)) for name in ("chrome", "edge")}}
-
-
-@app.post("/api/browser-settings")
-def set_browser_settings(req: BrowserReq):
-    try:
-        preferences = browser_preferences.normalize({"choice": req.choice, "custom_path": req.custom_path, "course_network": req.course_network})
-    except ValueError as error:
-        raise HTTPException(status_code=400, detail=str(error)) from error
-    cfg = load_config()
-    cfg["browser"] = preferences
-    save_config(cfg)
-    return {"ok": True, "preferences": preferences}
 
 
 @app.post("/api/config")
@@ -713,9 +687,10 @@ def _open_browser(url: str, delay: float = 1.2):
         return
     def go():
         try:
-            browser_preferences.open_panel(url)
-        except Exception as error:
-            print(f"打开所选浏览器失败，请在设置中检查浏览器安装路径：{type(error).__name__}")
+            import webbrowser
+            webbrowser.open(url)
+        except Exception:
+            pass
     threading.Timer(delay, go).start()
 
 
