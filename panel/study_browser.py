@@ -73,6 +73,11 @@ class CourseBrowser:
         self.headless = True
         self.embedded_receipts = {}
         self.network_issue = None
+        self.session_store = None
+        self.last_storage = None
+        self.last_session_save = 0
+        self.session_dirty = False
+        self.session_warning = False
 
     def perform(self, action):
         with self.action_lock if self.action_lock is not None else nullcontext():
@@ -82,24 +87,26 @@ class CourseBrowser:
     def ensure_session(self, visible=False):
         from playwright.sync_api import sync_playwright
         if self.page is None or self.page.is_closed() or self.headless != (not visible):
-            try:
-                storage = self.context.storage_state() if self.context else None
-            except Exception:
-                storage = None
-            self.close()
+            storage = self.capture_session(force=True) if self.context else self.last_storage
+            self.close(save_session=False)
+            if storage is None and self.session_store:
+                try:
+                    storage = self.session_store.load()
+                except Exception:
+                    self.log('本机保存的登录会话无法读取，将尝试桌面端会话；必要时请重新登录一次')
             self.runtime = sync_playwright().start()
             self.headless = not visible
             self.browser = lxt.launch_chromium(self.runtime, headless=self.headless, standard_automation=True)
-            self.context = self.browser.new_context(viewport={"width": 1400, "height": 900}, **({"storage_state": storage} if storage else {}))
+            self.context = self.browser.new_context(viewport={"width": 1400, "height": 900}, **({"storage_state": storage} if storage is not None else {}))
             self.context.add_init_script(MEDIA_GUARD_SCRIPT)
             self.context.route(re.compile(r"^https?://robot-lc\.chaoxing\.com/sdk/CxRobotSdkJs\.js(?:\?.*)?$"), self.assistant_script)
             try:
-                cookies = [] if storage else [cookie for cookie in lxt.load_cookies_for_browser()
+                cookies = [] if storage is not None else [cookie for cookie in lxt.load_cookies_for_browser()
                            if cookie["domain"].lstrip(".").endswith("chaoxing.com")
                            and (cookie.get("expires", -1) == -1 or cookie["expires"] > time.time())]
-                if not storage:
+                if storage is None:
                     self.context.add_cookies(cookies)
-                self.log("已保留当前登录会话" if storage else "已复用桌面端会话；若失效，请点击打开课程窗口登录后刷新")
+                self.log("已恢复本机保存的登录会话；有效性仍以平台反馈为准" if storage is not None else "已复用桌面端会话；若失效，请点击打开课程窗口登录后刷新")
             except (Exception, SystemExit):
                 self.log("未能读取桌面登录态；请点击打开课程窗口登录，再刷新课程")
             self.page = self.context.new_page()
@@ -107,6 +114,48 @@ class CourseBrowser:
             self.page.on("dialog", self._dialog)
             self.page.on("pageerror", lambda error: self.diagnostic("课程页面脚本报错；如影响播放，请在课程窗口检查，错误未被屏蔽"))
             self.page.on("requestfailed", self.request_failed)
+            self.page.on('framenavigated', lambda frame: self.mark_session_dirty())
+            self.session_dirty = True
+            self.capture_session(force=True)
+
+    def mark_session_dirty(self):
+        self.session_dirty = True
+
+    def capture_session(self, force=False):
+        if not self.context:
+            return self.last_storage
+        now = time.monotonic()
+        if not force and now - self.last_session_save < (2 if self.session_dirty else 20):
+            return self.last_storage
+        self.last_session_save = now
+        try:
+            # Tests and legacy callers without a store still transfer state in memory.
+            if self.session_store:
+                from study_session import platform_storage
+                try:
+                    captured = self.context.storage_state(indexed_db=True)
+                except TypeError:
+                    # Older supported Playwright versions lack IndexedDB export.
+                    captured = self.context.storage_state()
+                storage = platform_storage(captured)
+                self.session_store.save(storage)
+            else:
+                storage = self.context.storage_state()
+            self.last_storage = storage
+            self.session_dirty = False
+            self.session_warning = False
+        except Exception:
+            if self.session_store and not self.session_warning:
+                self.log('登录会话自动保存失败，已有保存不会被覆盖；本次退出后可能需要重新登录')
+                self.session_warning = True
+        return self.last_storage
+
+    def maintain_session(self):
+        if not self.page or self.page.is_closed():
+            return
+        # Pump native login/navigation events even while the queue is paused.
+        self.page.wait_for_timeout(40)
+        self.capture_session()
 
     def request_failed(self, request):
         failure = request.failure or ''
@@ -251,6 +300,7 @@ class CourseBrowser:
         while time.monotonic() < until:
             self.checkpoint()
             self.page.wait_for_timeout(min(200, max(1, int((until - time.monotonic()) * 1000))))
+        self.capture_session()
 
     def snapshots(self):
         self.checkpoint()
@@ -1013,8 +1063,10 @@ class CourseBrowser:
         # Recheck on subsequent calls because reaching the bottom can load more pages.
         return self.scroll_reading_area(task)
 
-    def close(self):
+    def close(self, save_session=True):
         self.embedded_receipts.clear()
+        if save_session:
+            self.capture_session(force=True)
         try:
             if self.browser:
                 self.browser.close()

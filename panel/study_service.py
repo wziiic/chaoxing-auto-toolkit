@@ -53,6 +53,9 @@ class StudyManager:
         self.worker_epoch = 0
         self.closed = False
         self.driver = browser_factory(self.checkpoint, self.log)
+        if isinstance(self.driver, CourseBrowser):
+            from study_session import BrowserSessionStore
+            self.driver.session_store = BrowserSessionStore(self.folder / 'browser-session.bin')
         self.driver.action_lock = self.lock
         if hasattr(self.driver,'scan_chapter'):
             self.state.setdefault('lazy_loading',True)
@@ -202,6 +205,12 @@ class StudyManager:
                 try:
                     epoch, action, payload = self.commands.get(timeout=0.3)
                 except queue.Empty:
+                    if hasattr(self.driver, 'maintain_session'):
+                        try:
+                            self.driver.maintain_session()
+                        except Exception:
+                            # A manually closed browser must not terminate the worker.
+                            pass
                     continue
                 if epoch != self.epoch:
                     continue
