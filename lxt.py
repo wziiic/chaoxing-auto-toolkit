@@ -30,6 +30,7 @@ import re
 import sys
 
 import requests
+import browser_preferences
 
 BASE = "https://mooc1-api.chaoxing.com"
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -63,14 +64,15 @@ def headers(cookie, referer=None):
 
 
 def launch_chromium(pw, headless=True, standard_automation=False):
-    """优先用系统 Chrome → Edge → Playwright 自带 chromium，逐级降级。
+    """按面板浏览器偏好启动；默认 Chrome → Edge → Chromium。
 
     对方机器没装 Chrome 时，只要执行过
     `python -m playwright install chromium` 也能跑。
     """
     args = [] if standard_automation else ["--disable-blink-features=AutomationControlled"]
     last = None
-    for channel in ("chrome", "msedge", None):
+    channels = browser_preferences.course_channels()
+    for channel in channels:
         try:
             kwargs = {"headless": headless, "args": args}
             if channel:
@@ -78,6 +80,9 @@ def launch_chromium(pw, headless=True, standard_automation=False):
             return pw.chromium.launch(**kwargs)
         except Exception as e:                      # noqa: BLE001
             last = e
+    if len(channels) == 1:
+        name = "Chrome" if channels[0] == "chrome" else "Edge"
+        raise RuntimeError(f"无法启动设置中指定的 {name}，请检查安装情况，或在设置 → 启动设置中更换浏览器。\n最后一次错误: {last}")
     raise RuntimeError(
         "找不到可用浏览器。请安装 Chrome/Edge，或执行 "
         "`python -m playwright install chromium` 后重试。\n"

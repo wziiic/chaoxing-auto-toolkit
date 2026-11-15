@@ -114,8 +114,8 @@
   <span class="badge" id="statusBar">就绪</span>
   <span style="flex:1"></span>
   <button onclick="refreshWorks()">刷新列表</button>
-  <button id="reloadPage" onclick="location.reload()">重载页面</button>
-  <button id="openLlmSettings" onclick="openLlmSettings()">LLM 设置</button>
+  <button id="reloadPage" onclick="reloadPanelPage()">重载页面</button>
+  <button id="openLlmSettings" onclick="openLlmSettings()">设置</button>
 </header>
 
 <main>
@@ -172,7 +172,9 @@
 </main>
 <dialog id="llmSettings" aria-labelledby="llmSettingsTitle">
   <div class="card">
-    <div class="llm-heading"><h2 id="llmSettingsTitle">LLM 设置（自动作答用）</h2><button onclick="document.getElementById('llmSettings').close()">关闭</button></div>
+    <div class="llm-heading"><h2 id="llmSettingsTitle">设置</h2><button onclick="document.getElementById('llmSettings').close()">关闭</button></div>
+    <div class="settings-tabs" role="tablist" aria-label="设置分类"><button id="llmTab" role="tab" aria-selected="true" aria-controls="llmPanel">LLM 设置</button><button id="startupTab" role="tab" aria-selected="false" aria-controls="startupPanel" tabindex="-1">启动设置</button></div>
+    <section id="llmPanel" role="tabpanel" aria-labelledby="llmTab">
     <div class="grid">
       <div>
         <label>API Base URL</label>
@@ -196,6 +198,21 @@
       兼容 OpenAI 协议的都能用：DeepSeek / 通义 / Kimi / 本地 Ollama 等。
       默认只暂存不交卷。
     </div>
+
+    </section>
+    <section id="startupPanel" role="tabpanel" aria-labelledby="startupTab" hidden>
+      <h3>启动设置</h3>
+      <label class="preference-row"><span>默认打开的浏览器<small>Chrome / Edge 同时用于新建课程窗口；系统默认和其他浏览器用于打开面板，课程内核自动选择。</small></span><select id="prefBrowser"><option value="system">系统默认浏览器</option><option value="chrome">Google Chrome</option><option value="edge">Microsoft Edge</option><option value="custom">其他浏览器（自定义路径）</option></select></label>
+      <label id="customBrowserRow" class="preference-row" hidden><span>浏览器程序路径<small>填写浏览器 .exe 完整路径，不附加参数。</small></span><input id="prefBrowserPath" type="text" placeholder="C:\Program Files\浏览器\browser.exe" autocomplete="off"></label>
+      <p id="browserNotice" class="hint" role="status">正在读取浏览器设置…</p>
+      <label class="preference-row"><span>启动时自动读取课程<small>打开面板后读取课程列表，不会自动开始学习或提交。</small></span><input id="prefAutoRead" type="checkbox"></label>
+      <label class="preference-row"><span>启动时打开的页面</span><select id="prefStartPage"><option value="current">跟随打开地址</option><option value="last">上次使用的页面</option><option value="works">作业面板</option><option value="study">课程学习</option></select></label>
+      <label class="preference-row"><span>恢复上次课程搜索和筛选</span><input id="prefRememberFilters" type="checkbox"></label>
+      <label class="preference-row"><span>显示加载时的猫娘提示</span><input id="prefLoadingTips" type="checkbox"></label>
+      <label class="preference-row"><span>课程任务进行中重载页面前提醒<small>重载网页不会停止后台任务。</small></span><input id="prefConfirmReload" type="checkbox"></label>
+      <button id="saveStartupSettings" class="primary" type="button">保存启动设置</button>
+      <p id="startupNotice" class="notice" role="status">浏览器选择保存到本机面板，其余偏好保存在当前浏览器。浏览器切换在下次启动面板或新建课程窗口时生效。</p>
+    </section>
   </div>
 
 </dialog>

@@ -16,8 +16,9 @@
   function resetTips(){clearTimeout(tipTimer);tipTimer=null;const pool=[...catLines];tipPair=[];for(let i=0;i<2;i++)tipPair.push(pool.splice(Math.floor(Math.random()*pool.length),1)[0]);tipIndex=0;}
   function tips(){
     if(!tipPair.length)resetTips();
-    const active=['settings','directory'].some(prefix=>!byId(prefix+'Loader').hidden&&byId(prefix+'Loader').classList.contains('loading')&&(prefix!=='directory'||byId('coursePicker').open));
-    for(const prefix of ['settings','directory']){const node=byId(prefix+'Tip');node.textContent=tipPair[tipIndex];node.hidden=!byId(prefix+'Loader').classList.contains('loading');}
+    const enabled=window.getPanelPreferences().loading_tips;
+    const active=enabled&&['settings','directory'].some(prefix=>!byId(prefix+'Loader').hidden&&byId(prefix+'Loader').classList.contains('loading')&&(prefix!=='directory'||byId('coursePicker').open));
+    for(const prefix of ['settings','directory']){const node=byId(prefix+'Tip');node.textContent=tipPair[tipIndex];node.hidden=!enabled||!byId(prefix+'Loader').classList.contains('loading');}
     if(active&&!tipTimer&&tipIndex===0)tipTimer=setTimeout(()=>{tipTimer=null;tipIndex=1;tips()},9000);
     if(!active){clearTimeout(tipTimer);tipTimer=null;}
   }
@@ -58,8 +59,8 @@
     let animation=animations.get(prefix);
     const paint=value=>{animation.shown=value;bar.querySelector('.liquid-fill').style.width=known?value+'%':(active?'35%':'0%');byId(prefix+'Percent').textContent=known?Math.floor(value)+'%':active?'加载中':'—';};
     if(!animation){animation={shown:0,target:-1,frame:0};animations.set(prefix,animation);}
-    if(animation.target!==percent||animation.known!==known){
-      cancelAnimationFrame(animation.frame);animation.target=percent;animation.known=known;
+    if(animation.target!==percent||animation.known!==known||animation.active!==active){
+      cancelAnimationFrame(animation.frame);animation.target=percent;animation.known=known;animation.active=active;
       const start=percent<animation.shown?0:animation.shown,begin=performance.now();
       if(!known||matchMedia('(prefers-reduced-motion: reduce)').matches)paint(percent);
       else {const tick=now=>{const t=Math.min(1,(now-begin)/1100);paint(start+(percent-start)*(1-Math.pow(1-t,3)));if(t<1)animation.frame=requestAnimationFrame(tick);};animation.frame=requestAnimationFrame(tick);}
@@ -67,7 +68,7 @@
     if(known)bar.setAttribute('aria-valuenow',String(percent));else bar.removeAttribute('aria-valuenow');
     bar.setAttribute('aria-valuetext',known?`${done} / ${total}`:'正在取得总数');
     byId(prefix+'Label').textContent=active?(reading?(progress.scope==='catalogue'?'正在读取课程目录':'正在读取任务点'):'正在核对课程'):progress.phase==='cancelled'?'读取已停止':progress.phase==='failed'?'读取中断':(reading?'上次课程读取':'课程列表读取');
-    byId(prefix+'Detail').textContent=known?`${done} / ${total} ${reading?(progress.scope==='catalogue'?'目录阶段':'章节'):'课程'}${progress.task_points!==undefined?' · 已发现 '+progress.task_points+' 个任务点':''}${progress.chapter?' · '+progress.chapter:''}`:(progress.chapter||'连接课程页面，等待平台目录…');
+    byId(prefix+'Detail').textContent=known?`${done} / ${total} ${reading?(progress.scope==='catalogue'?'目录阶段':'章节'):'课程'}${progress.task_points!==undefined?' · 已发现 '+progress.task_points+' 个任务点':''}${progress.chapter?' · '+progress.chapter:''}`:active?(progress.chapter||'连接课程页面，等待平台目录…'):progress.phase==='failed'?'读取已中断，请查看上方原因；处理后点击刷新重试。':progress.phase==='cancelled'?'读取已停止，可手动刷新重试。':'读取已结束。';
     tips();
   }
   function render(next) {
@@ -140,8 +141,15 @@
     try {
       byId('courseUrl').value=url;
       displayedCourseUrl=url;
-      awaitingSetup=true;
-      render(await api('/api/study/load',{url}));
+      let reuse=false;
+      try{
+        const identity=value=>{const parsed=new URL(value);if(parsed.protocol!=='https:'||!parsed.hostname.endsWith('.chaoxing.com')||parsed.pathname!=='/mycourse/studentstudy')return null;const query=Object.fromEntries(Array.from(parsed.searchParams,([key,value])=>[key.toLowerCase(),value]));return query.courseid&&query.clazzid?JSON.stringify([query.courseid,query.clazzid,query.cpi||'',query.enc||'']):null;};
+        const target=identity(url);
+        reuse=!!(target&&state?.loaded&&state.chapters?.length&&target===identity(state.input_url)&&!['preparing','scanning','running','pausing','stopping'].includes(state.status));
+      }catch{}
+      awaitingSetup=!reuse;
+      render(reuse?state:await api('/api/study/load',{url}));
+      if(reuse)byId('setupNote').textContent='已沿用之前读取的目录和任务状态；需要重新读取时请点击“刷新任务状态”。';
       byId('coursePicker').close();
       byId('studySettings').focus({preventScroll:true});
       byId('studySettings').scrollIntoView({behavior:matchMedia('(prefers-reduced-motion: reduce)').matches?'instant':'smooth',block:'start'});
@@ -151,7 +159,7 @@
   function renderDirectory() {
     if(!directory)return;
     const courses=directory.courses||[],filter=byId('courseFilter').value,search=byId('courseSearch').value.trim().toLocaleLowerCase();
-    liquid('directory',{completed:directory.checked||0,total:directory.total,active:directory.status==='loading',phase:directory.status==='error'?'failed':'done'});
+    liquid('directory',{completed:directory.checked||0,total:directory.total,active:directory.status==='loading',phase:directory.status==='error'?'failed':directory.status==='cancelled'?'cancelled':'done'});
     const counts={todo:courses.filter(item=>item.platform==='todo').length,unknown:courses.filter(item=>item.platform==='unknown').length};
     byId('courseDirectoryNote').textContent=`${directory.message||''} · 未完成 ${counts.todo} 门，状态未知 ${counts.unknown} 门`;
     byId('reloadCourses').disabled=directory.status==='loading'||choosing;
@@ -170,7 +178,7 @@
   }
   async function readDirectory(refresh=false) {
     clearTimeout(directoryTimer);
-    try {directory=await api('/api/study/courses',refresh?{}:undefined);renderDirectory();}
+    try {directory=await window.readCourseDirectoryOnce(refresh);renderDirectory();}
     catch(error){directory={status:'error',courses:[],message:error.message};renderDirectory();}
     if(byId('coursePicker').open&&directory?.status==='loading')directoryTimer=setTimeout(()=>readDirectory(),1000);
   }
@@ -179,14 +187,18 @@
     resetTips();liquid('directory',{active:true});
     byId('coursePicker').showModal();byId('courseDirectoryNote').textContent='正在读取当前账号的课程…';
     await readDirectory();
-    if(byId('coursePicker').open&&directory?.status!=='loading'&&
-       (directory?.status!=='ready'||Date.now()/1000-(directory.updated_at||0)>120))readDirectory(true);
   });
   byId('closePicker').addEventListener('click',()=>byId('coursePicker').close());
   byId('coursePicker').addEventListener('close',()=>{clearTimeout(directoryTimer);tips()});
   byId('reloadCourses').addEventListener('click',()=>{resetTips();readDirectory(true)});
-  byId('courseFilter').addEventListener('change',renderDirectory);
-  byId('courseSearch').addEventListener('input',renderDirectory);
+  function rememberFilters(){
+    if(window.getPanelPreferences().remember_filters)localStorage.setItem('lxt-course-filters',JSON.stringify({filter:byId('courseFilter').value,search:byId('courseSearch').value}));
+    renderDirectory();
+  }
+  if(window.getPanelPreferences().remember_filters){try{const saved=JSON.parse(localStorage.getItem('lxt-course-filters')||'{}');if(['todo','unknown','all'].includes(saved.filter))byId('courseFilter').value=saved.filter;if(typeof saved.search==='string')byId('courseSearch').value=saved.search;}catch{}}
+  window.addEventListener('panelpreferenceschange',()=>{tips();if(!window.getPanelPreferences().remember_filters)localStorage.removeItem('lxt-course-filters');});
+  byId('courseFilter').addEventListener('change',rememberFilters);
+  byId('courseSearch').addEventListener('input',rememberFilters);
   byId('loadTypedUrl').addEventListener('click',()=>loadUrl(byId('courseUrl').value.trim()));
   byId('closeDiscussion').addEventListener('click',()=>byId('discussionEditor').close());
   async function editDiscussion(action,publish=false){

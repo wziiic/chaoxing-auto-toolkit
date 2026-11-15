@@ -99,8 +99,20 @@ class CourseBrowser:
                 if not storage:
                     self.context.add_cookies(cookies)
                 self.log("已保留当前登录会话" if storage else "已复用桌面端会话；若失效，请点击打开课程窗口登录后刷新")
-            except (Exception, SystemExit):
-                self.log("未能读取桌面登录态；请点击打开课程窗口登录，再刷新课程")
+            except (Exception, SystemExit) as error:
+                restored = False
+                if storage is None:
+                    try:
+                        from study_login import saved_platform_cookies
+                        cookies = saved_platform_cookies()
+                        if cookies:
+                            self.context.add_cookies(cookies)
+                            restored = True
+                            self.log('桌面端登录态暂不可读，已复用本机既有的加密登录备份；有效性以平台为准')
+                    except Exception:
+                        pass
+                if not restored:
+                    self.log('桌面端登录文件无法读取（可能被占用或权限不足）；请在课程窗口登录，再手动刷新课程列表' if isinstance(error, PermissionError) else '未能读取桌面登录态；请点击打开课程窗口登录，再手动刷新课程列表')
             self.page = self.context.new_page()
             self.page.set_default_timeout(4000)
             self.page.on("dialog", self._dialog)

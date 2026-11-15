@@ -9,5 +9,6 @@
   "api_key": "",
   "temperature": 0
  },
- "auto_submit": false
+ "auto_submit": false,
+ "browser": {"choice": "system", "custom_path": ""}
 }
