@@ -6,7 +6,7 @@ from urllib.parse import parse_qs, urlencode, urlsplit, urlunsplit
 
 import lxt
 
-from study_core import Interrupted, StudyError, clean_url, digest, question_signature
+from study_core import Interrupted, NetworkInterrupted, StudyError, clean_url, digest, question_signature
 
 
 QUESTION_SCRIPT = Path(__file__).with_name("study_questions.js").read_text(encoding="utf-8")
@@ -22,6 +22,7 @@ MEDIA_GUARD_SCRIPT = """(() => {
             document.documentElement.setAttribute('data-lxt-pointer-left-at',String(Date.now()));
     },true);
     let lastControl = 0;
+    window.addEventListener('offline', () => document.documentElement?.setAttribute('data-lxt-offline-at',String(Date.now())));
     const controls = event => {
         if (event.isTrusted && event.target?.closest?.('video,audio,.video-js')) lastControl = Date.now();
     };
@@ -568,6 +569,8 @@ class CourseBrowser:
             state=element.evaluate("""element => {
                 let pause={};try{pause=JSON.parse(element.getAttribute('data-lxt-last-pause')||'{}')}catch{}
                 return {current:element.currentTime||0,duration:Number.isFinite(element.duration)?element.duration:0,paused:element.paused,ended:element.ended,ready:element.readyState,error:element.error?.code||0,rate:element.playbackRate,connected:element.isConnected,
+                    online:element.ownerDocument.defaultView.navigator.onLine,offline_since_play:Number(element.ownerDocument.documentElement?.getAttribute('data-lxt-offline-at')||0)>Number(element.getAttribute('data-lxt-play-started-at')||Date.now()),
+                    pause_reason_since_play:(pause.time||0)>Number(element.getAttribute('data-lxt-play-started-at')||Date.now())?pause.reason:'unknown',
                     hidden:element.ownerDocument.hidden,focused:element.ownerDocument.hasFocus(),pause_reason:Date.now()-(pause.time||0)<10000?pause.reason:'unknown',
                     playback_allowed:element.getAttribute('data-lxt-playback-allowed')==='true',speed_rejected:/不支持倍速|倍速.*(?:不计|禁止|无效)/.test(element.ownerDocument.body?.innerText||'')};
             }""")
@@ -585,6 +588,44 @@ class CourseBrowser:
             self.perform(lambda: element.evaluate("element=>{element.playbackRate=1}"))
         finally:
             element.dispose()
+
+    def network_available(self):
+        from study_directory import platform_url
+        self.checkpoint()
+        if not self.page or self.page.is_closed():
+            raise StudyError('课程浏览器已关闭，无法自动恢复网络播放')
+        if not self.page.evaluate('navigator.onLine'):return False
+        if not platform_url(self.page.url) and self.url:
+            # A failed navigation can leave a Chromium error document, whose CSP
+            # blocks fetch. Probe without opening another visible page.
+            try:
+                parts=urlsplit(self.url)
+                response=self.context.request.head(parts.scheme+'://'+parts.netloc+'/favicon.ico',timeout=3000)
+                try:return response.status<500
+                finally:response.dispose()
+            except Exception:return False
+        result=self.page.evaluate("""async()=>{
+            if(!navigator.onLine)return false;
+            const controller=new AbortController(),timer=setTimeout(()=>controller.abort(),3000);
+            try{const response=await fetch(new URL('/favicon.ico?lxt_net_check='+Date.now(),location.origin),{method:'HEAD',cache:'no-store',signal:controller.signal});return response.status<500}
+            catch{return false}finally{clearTimeout(timer)}
+        }""")
+        self.checkpoint()
+        return result
+
+    def reload_media_task(self, task):
+        from study_directory import platform_url
+        # Re-enter only this task; let the platform restore its recorded position.
+        # Do not seek the media timeline or rebuild the course directory.
+        try:
+            self.goto(self.page.url if platform_url(self.page.url) else self.url)
+            self.activate(task)
+        except Interrupted:
+            raise
+        except Exception as error:
+            if not self.network_available() or '课程页面连接超时' in str(error) or re.search(r'net::ERR_(?:INTERNET_DISCONNECTED|NETWORK_CHANGED|CONNECTION_RESET|CONNECTION_CLOSED|CONNECTION_TIMED_OUT|NAME_NOT_RESOLVED)',str(error)):
+                raise NetworkInterrupted('当前任务重连时网络仍不可用') from error
+            raise
 
     def play(self, task, rate, mute=False):
         self.checkpoint()
@@ -608,16 +649,22 @@ class CourseBrowser:
                 break
             except MediaLoading as error:
                 if time.monotonic() >= until:
+                    if not self.network_available():
+                        raise NetworkInterrupted('播放器因断网未能加载') from error
                     raise StudyError("视频任务已识别，但播放器加载超时；请检查网络或系统代理后继续") from error
                 self.wait(.3)
         self.perform(lambda: element.scroll_into_view_if_needed(timeout=3000))
-        result = self.perform(lambda: element.evaluate("""async (element, options) => { const {rate, mute}=options; element.muted=mute; element.setAttribute('data-lxt-playback-allowed','true'); const menu=Array.from(element.ownerDocument.querySelectorAll('[data-playback-rate],.vjs-menu-item')).map(item=>Number(item.getAttribute('data-playback-rate')||(item.textContent||'').replace(/[^0-9.]/g,''))).filter(value=>value>=0.5&&value<=2);const supported=rate===1||menu.includes(rate); element.playbackRate=supported?rate:1;let timer;try{const ok=await Promise.race([element.play().then(()=>true,()=>false),new Promise(resolve=>{timer=setTimeout(()=>resolve(false),3000)})]);return {ok,rate:element.playbackRate}}finally{clearTimeout(timer)} }""", {"rate": rate, "mute": bool(mute)}))
+        result = self.perform(lambda: element.evaluate("""async (element, options) => { const {rate, mute}=options; element.muted=mute; element.setAttribute('data-lxt-play-started-at',String(Date.now())); element.setAttribute('data-lxt-playback-allowed','true'); const menu=Array.from(element.ownerDocument.querySelectorAll('[data-playback-rate],.vjs-menu-item')).map(item=>Number(item.getAttribute('data-playback-rate')||(item.textContent||'').replace(/[^0-9.]/g,''))).filter(value=>value>=0.5&&value<=2);const supported=rate===1||menu.includes(rate); element.playbackRate=supported?rate:1;let timer;try{const ok=await Promise.race([element.play().then(()=>true,()=>false),new Promise(resolve=>{timer=setTimeout(()=>resolve(false),3000)})]);return {ok,rate:element.playbackRate}}finally{clearTimeout(timer)} }""", {"rate": rate, "mute": bool(mute)}))
         self.checkpoint()
         if not result["ok"]:
             element.evaluate("element => {element.muted=true}")
             self.checkpoint()
             result = self.perform(lambda: element.evaluate("async element => {let timer;try{const ok=await Promise.race([element.play().then(()=>true,()=>false),new Promise(resolve=>{timer=setTimeout(()=>resolve(false),3000)})]);return {ok,rate:element.playbackRate}}finally{clearTimeout(timer)}}"))
         if not result["ok"]:
+            network_error=element.evaluate('e=>e.error?.code===2||!e.ownerDocument.defaultView.navigator.onLine')
+            element.dispose()
+            if network_error or not self.network_available():
+                raise NetworkInterrupted('播放器网络连接已中断')
             raise StudyError("自动播放被浏览器阻止，请在课程窗口手动点击播放后继续")
         if result["rate"] != rate:
             self.log("平台未提供所选倍速，已回退到正常速度")

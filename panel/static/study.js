@@ -22,7 +22,7 @@
     if(active&&!tipTimer&&tipIndex===0)tipTimer=setTimeout(()=>{tipTimer=null;tipIndex=1;tips()},9000);
     if(!active){clearTimeout(tipTimer);tipTimer=null;}
   }
-  const statuses = {reference:'说明内容',not_applicable:'非任务点',idle:'未读取',ready:'待执行',preparing:'准备中',scanning:'读取目录中',pending:'待执行',running:'执行中',waiting_model:'等待模型',verifying:'等待平台核验',paused:'已暂停',pausing:'正在暂停',stopping:'正在停止',stopped:'已停止',done:'已完成',failed:'失败',manual:'需人工处理',needs_attention:'本轮结束 / 待处理',todo:'未完成',locked:'锁定',unknown:'未知'};
+  const statuses = {reference:'说明内容',not_applicable:'非任务点',idle:'未读取',ready:'待执行',preparing:'准备中',scanning:'读取目录中',pending:'待执行',running:'执行中',waiting_model:'等待模型',waiting_network:'等待网络恢复',verifying:'等待平台核验',paused:'已暂停',pausing:'正在暂停',stopping:'正在停止',stopped:'已停止',done:'已完成',failed:'失败',manual:'需人工处理',needs_attention:'本轮结束 / 待处理',todo:'未完成',locked:'锁定',unknown:'未知'};
   const kinds = {video:'视频',audio:'音频',text:'文本阅读',link:'链接阅读',image:'图片资料',document:'文档 / 课件',quiz:'章节练习',embedded_quiz:'视频内嵌题',discussion:'讨论',unknown:'待识别'};
   const submissions = {'':'—',filled:'已填写',intent:'已记录提交意图',saved:'已保存',submitted:'已提交',graded:'已判分',verified:'平台已核验完成'};
   async function api(path, body) {
@@ -75,7 +75,7 @@
     state=next;
     liquid('settings',next.read_progress);
     byId('connection').textContent=next.worker_responsive?'服务已连接':'队列长时间无响应；请关闭课程浏览器后重新读取';
-    byId('queueState').textContent=statuses[next.status]||next.status;
+    byId('queueState').textContent=next.network_recovering?'等待网络恢复':statuses[next.status]||next.status;
     if(awaitingSetup)byId('setupNote').textContent=['preparing','scanning'].includes(next.status)?'正在读取课程。可以先调整设置；读取完成后点击“开始学习”。':next.loaded&&next.status==='ready'?(next.lazy_loading?'课程目录已就绪，请确认设置，再点击“开始学习”；进入章节时实时识别任务。':'课程已读取，请确认下方设置，再点击“开始学习”。'):'读取尚未完成，请查看提示；完成读取后再开始学习。';
     if(next.message)message(next.message);
     for(const [key,value] of Object.entries(next.counts||{})) if(byId(key))byId(key).textContent=String(value);

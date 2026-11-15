@@ -17,6 +17,11 @@ class PlaybackPaused(StudyError):
     pass
 
 
+class NetworkInterrupted(StudyError):
+    """A media transport outage that can be retried without submitting anything."""
+    pass
+
+
 class Interrupted(Exception):
     pass
 

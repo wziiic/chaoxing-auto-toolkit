@@ -105,6 +105,14 @@ def main():
         assert settings[-1]['auto_submit_discussion'] is True
         page.reload()
         page.wait_for_function("document.querySelector('#autoSubmitDiscussion').checked")
+        state.update(status='running',network_recovering=True,current='fixture-video')
+        state['tasks'][0]['status']='waiting_network'
+        page.wait_for_function("document.querySelector('#queueState').textContent==='等待网络恢复'")
+        assert page.locator('#pause').is_enabled() and page.locator('#stop').is_enabled()
+        assert page.locator('#all').is_disabled()
+        state.update(status='ready',network_recovering=False,current='')
+        state['tasks'][0]['status']='pending'
+        page.wait_for_function("document.querySelector('#queueState').textContent==='待执行'")
         page.locator('#openLlmSettings').click()
         page.wait_for_function("!document.querySelector('#saveLlmSettings').disabled")
         page.locator('#cfgModel').fill('fixture-updated-model')

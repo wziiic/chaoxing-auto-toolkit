@@ -5,8 +5,8 @@ import time
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
-from study_browser import CourseBrowser
-from study_core import CourseLock, Interrupted, PlaybackPaused, StudyError, StudyStore, course_link, digest, normalize_answers, question_signature, redact, study_prompt
+from study_browser import CourseBrowser, MediaLoading
+from study_core import CourseLock, Interrupted, NetworkInterrupted, PlaybackPaused, StudyError, StudyStore, course_link, digest, normalize_answers, question_signature, redact, study_prompt
 
 
 class StudyManager:
@@ -34,6 +34,7 @@ class StudyManager:
             self.state['chapters']=list(chapters.values())
             self.state['catalog_complete']=False
         self.restored_from_cache = bool(self.state["course_id"])
+        self.state['network_recovering']=False
         if self.state.get("read_progress", {}).get("active"):
             self.state["read_progress"].update(active=False, phase="cancelled")
         if self.state["course_id"]:
@@ -45,7 +46,7 @@ class StudyManager:
                     task.update(attempts=max(0,task.get('attempts',0)-1),playback_interrupted=True)
                 if task["status"] == "done" and task["platform"] == "done":
                     task["verified"] = True
-                if task["status"] in ("preparing", "running", "waiting_model"):
+                if task["status"] in ("preparing", "running", "waiting_model", "waiting_network"):
                     task["status"] = "paused"
         self.lock = threading.RLock()
         self.commands = queue.Queue()
@@ -214,7 +215,7 @@ class StudyManager:
                         continue
                     if action in ("pause", "stop"):
                         for task in self.state["tasks"]:
-                            if task["status"] in ("preparing", "running", "waiting_model"):
+                            if task["status"] in ("preparing", "running", "waiting_model", "waiting_network"):
                                 task["status"] = "paused"
                         self.update(status="paused" if action == "pause" else "stopped")
                         if action == "stop" and self.course_lock:
@@ -626,7 +627,67 @@ class StudyManager:
         self.update(task, status="verifying", reason="已等待当前页面并重新进入核验，平台仍未确认完成；保留待核验，不重复播放或提交，可稍后点击继续")
         return False
 
+    @staticmethod
+    def known_media_pause(state):
+        if not state.get('paused'):return ''
+        reason=state.get('pause_reason')
+        if reason in (None,'unknown'):reason=state.get('pause_reason_since_play',reason)
+        if state.get('hidden') or reason=='hidden':return '课程页面被隐藏或切换标签后暂停；请返回课程窗口并点击继续'
+        if state.get('job_limit'):return '平台已限制当前可学习的任务数量；请按平台提示处理后继续'
+        if state.get('time_limit'):return '平台已达到允许的学习时长上限；请按平台提示处理后继续'
+        if reason=='pointer_left_window':return '鼠标离开课程窗口后触发平台暂停；请返回课程窗口并点击继续'
+        if reason=='user_control':return '检测到播放器控件操作后暂停；保留当前位置，点击继续才恢复'
+        return ''
+
+    def wait_for_media_network(self, task, retries):
+        self.update(task,status='waiting_network',reason='网络中断，等待连接恢复后自动继续；可随时暂停或停止')
+        self.update(network_recovering=True)
+        self.log('当前媒体网络中断，保留任务与进度，等待网络恢复；不会重复提交题目或讨论')
+        self.driver.wait(min(2 ** min(retries,5),30))
+        while True:
+            self.checkpoint()
+            try:
+                reason=self.known_media_pause(self.driver.media_state(task))
+                if reason:raise PlaybackPaused(reason)
+            except MediaLoading:
+                pass
+            except StudyError as error:
+                # A failed native reload may leave an error document with no task
+                # DOM. Only tolerate missing content inside an established outage;
+                # login, verification, closed windows and platform guards still stop.
+                if not str(error).startswith(('任务节点已替换或尚未加载','所有 frame 均无法读取')):
+                    raise
+            if self.driver.network_available():
+                self.driver.wait(1)
+                if self.driver.network_available():return
+            self.driver.wait(5)
+
     def media(self, task, options):
+        retries=0
+        try:
+            while True:
+                try:
+                    if retries:
+                        self.driver.reload_media_task(task)
+                        if self.driver.platform(task)=='done':
+                            self.complete(task)
+                            return
+                        self.update(task,status='running',reason='')
+                        self.update(network_recovering=False)
+                        self.log('网络已恢复，已重新进入当前任务，按原播放设置继续')
+                    self.watch_media(task,options)
+                    return
+                except NetworkInterrupted:
+                    retries+=1
+                    self.wait_for_media_network(task,retries)
+        finally:
+            # Cancellation changes the epoch, so update() would itself be rejected.
+            # Clear only this worker's recovery marker before handling the next command.
+            with self.lock:
+                self.state['network_recovering']=False
+                self.store.save(self.state)
+
+    def watch_media(self, task, options):
         if not self.resolve_popups(task,options):return
         self.driver.play(task, options["rate"], mute=options.get("mute", False))
         deadline = time.monotonic() + 6 * 60 * 60
@@ -644,7 +705,13 @@ class StudyManager:
                 self.driver.normal_rate(task)
                 self.log("页面提示倍速不被认可，已回退正常速度；完成状态仍以平台核验为准")
             self.update(task, progress={"current": round(state["current"], 1), "duration": round(state["duration"], 1), "rate": state["rate"]})
+            if state.get('online') is False or state['error']==2 or ((state['paused'] or state['error']) and state.get('offline_since_play')):
+                reason=self.known_media_pause(state)
+                if reason:raise PlaybackPaused(reason)
+                raise NetworkInterrupted('媒体网络连接中断')
             if state["error"]:
+                if state['error'] in (1,4) and not self.driver.network_available():
+                    raise NetworkInterrupted('媒体加载失败且平台连接不可用')
                 raise StudyError("播放器报告媒体错误，请检查网络或在原页面重新加载")
             if state["ended"]:
                 self.update(task, action_finished=True)
@@ -670,18 +737,24 @@ class StudyManager:
                     raise PlaybackPaused('鼠标离开课程窗口后触发平台暂停，页面即使仍有焦点也会发生；请返回课程窗口并点击继续，此课无法保证后台播放')
                 if reason=='user_control':
                     raise PlaybackPaused('检测到播放器控件操作后暂停；保留当前位置，点击继续才恢复')
+                if state['ready']<3 and not self.driver.network_available():
+                    raise NetworkInterrupted('播放器因网络不可用而暂停')
                 if state.get('playback_allowed') is False:
                     raise PlaybackPaused('播放器节点已替换或播放授权已失效；请点击继续重新定位播放器')
                 raise PlaybackPaused('页面或播放器主动暂停，未发现可确定的触发原因；保留进度，点击继续恢复，观看时请保持课程窗口可见')
             if state["ready"] < 3:
                 buffering = buffering or time.monotonic()
                 if time.monotonic() - buffering > 45:
+                    if not self.driver.network_available():
+                        raise NetworkInterrupted('媒体缓冲时网络不可用')
                     raise StudyError("媒体缓冲超过 45 秒，请检查网络后重试")
             else:
                 buffering = None
             if abs(state["current"] - last_time) > 0.05:
                 last_progress, last_time = time.monotonic(), state["current"]
             elif time.monotonic() - last_progress > 60:
+                if not self.driver.network_available():
+                    raise NetworkInterrupted('媒体停止推进且平台连接不可用')
                 raise StudyError("媒体长时间没有真实进度，可能页面脚本阻塞或播放失败")
         raise StudyError("当前媒体超过单次 6 小时执行上限，已暂停")
 
