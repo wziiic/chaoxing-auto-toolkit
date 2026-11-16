@@ -207,5 +207,22 @@ class NetworkBrowserTests(unittest.TestCase):
         self.assertEqual(driver.platform(task),'todo')
         self.assertFalse(driver.media_state(task)['offline_since_play'])
 
+    def test_startup_failures_preserve_native_reason(self):
+        for name,expected,exception in (
+            ('NotAllowedError','浏览器阻止',StudyError),
+            ('StartupTimeout','媒体资源尚未就绪',StudyError),
+            ('NetworkError','网络请求失败',NetworkInterrupted),
+            ('NotSupportedError','NotSupportedError',StudyError),
+        ):
+            with self.subTest(name=name):
+                context=self.browser.new_context()
+                try:
+                    context.route('**/*',lambda route:route.fulfill(content_type='text/html',body='<div data-study-task-id="fixture"><video controls width="320" height="180"></video></div>'))
+                    page=context.new_page();page.goto(LINK)
+                    page.evaluate('(name)=>document.querySelector("video").play=()=>Promise.reject(new DOMException("fixture",name))',name)
+                    driver=CourseBrowser(lambda:None,lambda _:None);driver.page=page;driver.context=context;driver.url=LINK
+                    with self.assertRaisesRegex(exception,expected):driver.play({'local_id':'fixture'},1,mute=True)
+                finally:context.close()
+
 
 if __name__=='__main__':unittest.main()

@@ -654,18 +654,25 @@ class CourseBrowser:
                     raise StudyError("视频任务已识别，但播放器加载超时；请检查网络或系统代理后继续") from error
                 self.wait(.3)
         self.perform(lambda: element.scroll_into_view_if_needed(timeout=3000))
-        result = self.perform(lambda: element.evaluate("""async (element, options) => { const {rate, mute}=options; element.muted=mute; element.setAttribute('data-lxt-play-started-at',String(Date.now())); element.setAttribute('data-lxt-playback-allowed','true'); const menu=Array.from(element.ownerDocument.querySelectorAll('[data-playback-rate],.vjs-menu-item')).map(item=>Number(item.getAttribute('data-playback-rate')||(item.textContent||'').replace(/[^0-9.]/g,''))).filter(value=>value>=0.5&&value<=2);const supported=rate===1||menu.includes(rate); element.playbackRate=supported?rate:1;let timer;try{const ok=await Promise.race([element.play().then(()=>true,()=>false),new Promise(resolve=>{timer=setTimeout(()=>resolve(false),3000)})]);return {ok,rate:element.playbackRate}}finally{clearTimeout(timer)} }""", {"rate": rate, "mute": bool(mute)}))
+        result = self.perform(lambda: element.evaluate("""async (element, options) => { const {rate, mute}=options; element.muted=mute; element.setAttribute('data-lxt-play-started-at',String(Date.now())); element.setAttribute('data-lxt-playback-allowed','true'); const menu=Array.from(element.ownerDocument.querySelectorAll('[data-playback-rate],.vjs-menu-item')).map(item=>Number(item.getAttribute('data-playback-rate')||(item.textContent||'').replace(/[^0-9.]/g,''))).filter(value=>value>=0.5&&value<=2);const supported=rate===1||menu.includes(rate); element.playbackRate=supported?rate:1;let timer;try{const ok=await Promise.race([element.play().then(()=>({ok:true}),error=>({ok:false,error:error.name})),new Promise(resolve=>{timer=setTimeout(()=>resolve({ok:false,error:'StartupTimeout'}),15000)})]);return {...ok,rate:element.playbackRate}}finally{clearTimeout(timer)} }""", {"rate": rate, "mute": bool(mute)}))
         self.checkpoint()
         if not result["ok"]:
             element.evaluate("element => {element.muted=true}")
             self.checkpoint()
-            result = self.perform(lambda: element.evaluate("async element => {let timer;try{const ok=await Promise.race([element.play().then(()=>true,()=>false),new Promise(resolve=>{timer=setTimeout(()=>resolve(false),3000)})]);return {ok,rate:element.playbackRate}}finally{clearTimeout(timer)}}"))
+            result = self.perform(lambda: element.evaluate("async element => {let timer;try{const ok=await Promise.race([element.play().then(()=>({ok:true}),error=>({ok:false,error:error.name})),new Promise(resolve=>{timer=setTimeout(()=>resolve({ok:false,error:'StartupTimeout'}),15000)})]);return {...ok,rate:element.playbackRate}}finally{clearTimeout(timer)}}"))
         if not result["ok"]:
             network_error=element.evaluate('e=>e.error?.code===2||!e.ownerDocument.defaultView.navigator.onLine')
             element.dispose()
             if network_error or not self.network_available():
                 raise NetworkInterrupted('播放器网络连接已中断')
-            raise StudyError("自动播放被浏览器阻止，请在课程窗口手动点击播放后继续")
+            error_name=result.get('error','UnknownError')
+            if error_name=='NetworkError':
+                raise NetworkInterrupted('播放器启动时网络请求失败')
+            if error_name=='StartupTimeout':
+                raise StudyError('播放器启动等待超过 30 秒，媒体资源尚未就绪；请检查媒体连接后继续，并非已确认浏览器阻止自动播放')
+            if error_name=='NotAllowedError':
+                raise StudyError("自动播放被浏览器阻止，请在课程窗口手动点击播放后继续")
+            raise StudyError('播放器启动失败（'+error_name+'），请检查当前媒体资源后继续')
         if result["rate"] != rate:
             self.log("平台未提供所选倍速，已回退到正常速度")
         element.dispose()
