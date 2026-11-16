@@ -2,10 +2,12 @@ import copy
 import queue
 import threading
 import time
+from time import time as wall_time
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
 from study_browser import CourseBrowser, MediaLoading
+from study_power import learning_awake
 from study_core import CourseLock, Interrupted, NetworkInterrupted, PlaybackPaused, StudyError, StudyStore, course_link, digest, normalize_answers, question_signature, redact, study_prompt
 
 
@@ -261,7 +263,8 @@ class StudyManager:
                         self.driver.pause_media()
                         self.update(status="paused")
                     else:
-                        self.run(action, payload)
+                        with learning_awake(self.log):
+                            self.run(action, payload)
                     if self.jobs and self.job_id:
                         self.jobs[2](self.job_id, result={"course_id": self.state["course_id"], "status": self.state["status"]})
                 except Interrupted:
@@ -694,8 +697,22 @@ class StudyManager:
         last_progress = time.monotonic()
         last_time = -1
         buffering = None
-        while time.monotonic() < deadline:
+        last_tick = wall_time()
+        while True:
             self.driver.wait(1)
+            now = wall_time()
+            resumed = now - last_tick > 90
+            last_tick = now
+            if resumed:
+                self.checkpoint()
+                state = self.driver.media_state(task)
+                reason = self.known_media_pause(state)
+                if reason:raise PlaybackPaused(reason)
+                if not state.get('ended'):
+                    self.log('检测到学习进程长时间挂起，重新连接当前媒体任务')
+                    raise NetworkInterrupted('系统唤醒或进程挂起后重新连接媒体')
+            if time.monotonic() >= deadline and not resumed:
+                raise StudyError("当前媒体超过单次 6 小时执行上限，已暂停")
             if self.driver.popup(task):
                 if not self.resolve_popups(task,options):return
                 self.driver.play(task, 1, mute=options.get("mute", False))
@@ -756,7 +773,6 @@ class StudyManager:
                 if not self.driver.network_available():
                     raise NetworkInterrupted('媒体停止推进且平台连接不可用')
                 raise StudyError("媒体长时间没有真实进度，可能页面脚本阻塞或播放失败")
-        raise StudyError("当前媒体超过单次 6 小时执行上限，已暂停")
 
     def resolve_popups(self,task,options):
         for _ in range(20):
@@ -773,20 +789,33 @@ class StudyManager:
             self.log("上次模型请求仍在结束中；旧响应已失效，等待后再请求")
             while not self.model_future.done():
                 self.wait(0.2)
-        self.checkpoint()
-        config = self.load_config()
-        self.model_future = self.models.submit(self.call_model, prompt, config)
-        try:
-            while not self.model_future.done():
-                self.wait(0.2)
+        # Retry generation only. No form fill or native submit has happened here.
+        from requests.exceptions import ConnectionError, Timeout, SSLError
+        for attempt in range(6):
             self.checkpoint()
+            config = self.load_config()
+            self.model_future = self.models.submit(self.call_model, prompt, config)
             try:
-                raw = self.model_future.result()
-            except Exception as error:
-                raise StudyError("模型调用失败（" + type(error).__name__ + "）；请检查第一页的模型设置，未填写或提交") from None
-            return raw
-        finally:
-            self.model_future.cancel()
+                while not self.model_future.done():
+                    self.wait(0.2)
+                self.checkpoint()
+                try:
+                    result = self.model_future.result()
+                except Exception as error:
+                    transient = isinstance(error, (ConnectionError, Timeout))
+                    # Certificate/configuration errors need correction, never disable TLS.
+                    if isinstance(error, SSLError) and any(word in str(error).lower() for word in ('certificate', 'hostname', 'self signed')):
+                        transient = False
+                    if not transient or attempt == 5:
+                        raise StudyError("模型调用失败（" + type(error).__name__ + "）；请检查设置或连接，未填写或提交") from None
+                    self.log('模型连接暂时中断（'+type(error).__name__+'），等待恢复后重试生成（'+str(attempt+1)+'/5）；尚未填写或提交')
+                    self.update(message='模型连接中断，正在自动重试生成；可随时暂停或停止')
+                    self.wait(min(2 ** (attempt+1),30))
+                    continue
+                if attempt:self.update(message='模型连接已恢复，继续当前任务')
+                return result
+            finally:
+                self.model_future.cancel()
 
     def model(self, questions):
         return normalize_answers(questions, self.request_model(study_prompt(questions)))

@@ -109,6 +109,69 @@ class NetworkQueueTests(unittest.TestCase):
             with self.assertRaisesRegex(StudyError,'媒体错误'):manager.media(task,{'rate':1})
             reload.assert_not_called()
 
+    def test_suspended_media_reconnects_even_without_browser_offline_event(self):
+        manager,task=self.manager()
+        paused={**OFFLINE,'error':0,'online':True}
+        with patch('study_service.wall_time',side_effect=[0,200]), \
+             patch.object(manager.driver,'media_state',return_value=paused):
+            with self.assertRaises(NetworkInterrupted):manager.watch_media(task,{'rate':1})
+
+    def test_suspend_does_not_override_native_user_pause(self):
+        manager,task=self.manager()
+        with patch('study_service.wall_time',side_effect=[0,200]), \
+             patch.object(manager.driver,'media_state',return_value={**OFFLINE,'pause_reason_since_play':'user_control'}):
+            with self.assertRaises(PlaybackPaused):manager.watch_media(task,{'rate':1})
+
+    def test_transient_model_tls_failure_retries_generation_only(self):
+        from requests.exceptions import SSLError
+        manager,task=self.manager()
+        with patch.object(manager,'call_model',side_effect=[SSLError('EOF occurred in violation of protocol'),{'text':'回答'}]) as model, \
+             patch.object(manager,'wait'):
+            self.assertEqual(manager.request_model('题目'),{'text':'回答'})
+        self.assertEqual(model.call_count,2)
+        self.assertEqual(manager.driver.submit_count,0)
+        self.assertEqual(task['attempts'],1)
+
+    def test_model_certificate_and_config_errors_do_not_retry(self):
+        from requests.exceptions import SSLError
+        for error in (SSLError('CERTIFICATE_VERIFY_FAILED'),RuntimeError('missing API key')):
+            with self.subTest(error=type(error).__name__):
+                manager,task=self.manager()
+                with patch.object(manager,'call_model',side_effect=error) as model:
+                    with self.assertRaises(StudyError):manager.request_model('题目')
+                    self.assertEqual(model.call_count,1)
+
+    def test_model_network_retries_are_bounded(self):
+        from requests.exceptions import ConnectionError
+        manager,task=self.manager()
+        with patch.object(manager,'call_model',side_effect=ConnectionError('offline')) as model, \
+             patch.object(manager,'wait'):
+            with self.assertRaises(StudyError):manager.request_model('题目')
+        self.assertEqual(model.call_count,6)
+        self.assertEqual(manager.driver.submit_count,0)
+
+    def test_pause_during_model_retry_cancels_generation(self):
+        from requests.exceptions import ConnectionError
+        manager,task=self.manager()
+        def cancel_wait(seconds):
+            if seconds>=2:
+                manager.epoch+=1
+            manager.checkpoint()
+        with patch.object(manager,'call_model',side_effect=ConnectionError('offline')) as model, \
+             patch.object(manager,'wait',side_effect=cancel_wait):
+            with self.assertRaises(Interrupted):manager.request_model('题目')
+        self.assertEqual(model.call_count,1)
+
+
+class PowerTests(unittest.TestCase):
+    def test_awake_request_restores_previous_flags_on_failure(self):
+        from study_power import learning_awake
+        with patch('study_power.os.name','nt'), \
+             patch('study_power.ctypes.windll.kernel32.SetThreadExecutionState',return_value=0x80000000) as setter:
+            with self.assertRaises(ValueError):
+                with learning_awake(lambda _:None):raise ValueError('cancel')
+            self.assertEqual([c.args[0] for c in setter.call_args_list],[0x80000001,0x80000000])
+
 
 class NetworkBrowserTests(unittest.TestCase):
     @classmethod
