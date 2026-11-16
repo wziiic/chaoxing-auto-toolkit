@@ -237,6 +237,32 @@ class NetworkQueueTests(unittest.TestCase):
 
 
 class PowerTests(unittest.TestCase):
+    def test_navigation_retries_only_after_observed_network_change(self):
+        import time
+        driver=CourseBrowser(lambda:None,lambda _:None)
+        def incomplete(_):
+            driver.last_network_change=time.monotonic()
+            raise StudyError('课程目录加载超时，页面尚未就绪')
+        with patch.object(driver,'_goto_once',side_effect=[None]):
+            driver.goto(LINK)
+        with patch.object(driver,'_goto_once',side_effect=[StudyError('课程目录加载超时'),None]) as navigate,patch.object(driver,'wait'):
+            with self.assertRaises(StudyError):driver.goto(LINK)
+            self.assertEqual(navigate.call_count,1)
+        calls=[]
+        def navigation(url):
+            calls.append(url)
+            if len(calls)==1:incomplete(url)
+        with patch.object(driver,'_goto_once',side_effect=navigation),patch.object(driver,'wait'):
+            driver.goto(LINK)
+        self.assertEqual(calls,[LINK,LINK])
+
+    def test_navigation_change_retry_is_bounded_and_login_redirect_is_not_retried(self):
+        driver=CourseBrowser(lambda:None,lambda _:None)
+        for message,count in [('net::ERR_NETWORK_CHANGED',2),('课程页面跳转到了其他课程或登录页面',1)]:
+            with patch.object(driver,'_goto_once',side_effect=StudyError(message)) as navigate,patch.object(driver,'wait'):
+                with self.assertRaises(StudyError):driver.goto(LINK)
+                self.assertEqual(navigate.call_count,count)
+
     def test_transport_diagnostic_keeps_error_but_hides_signed_url(self):
         from types import SimpleNamespace
         driver=CourseBrowser(lambda:None,lambda _:None)

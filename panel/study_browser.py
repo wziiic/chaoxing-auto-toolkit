@@ -71,6 +71,7 @@ class CourseBrowser:
         self.cancel_dialog = False
         self.last_diagnostic = 0
         self.network_diagnostics = {}
+        self.last_network_change = float('-inf')
         self.action_lock = None
         self.headless = True
         self.embedded_receipts = {}
@@ -199,6 +200,7 @@ class CourseBrowser:
         if code=='net::ERR_ABORTED':return  # Expected during native navigation.
         host=urlsplit(request.url).hostname or '未知主机'
         now=time.monotonic()
+        if code=='net::ERR_NETWORK_CHANGED':self.last_network_change=now
         if now-self.network_diagnostics.get(code,float('-inf'))<15:return
         self.network_diagnostics={key:at for key,at in self.network_diagnostics.items() if now-at<15}
         self.network_diagnostics[code]=now
@@ -213,6 +215,21 @@ class CourseBrowser:
             self.log("页面弹出确认对话框，已取消；需人工处理后继续")
 
     def goto(self, url):
+        for attempt in range(2):
+            started=time.monotonic()
+            try:
+                return self._goto_once(url)
+            except Exception as error:
+                if isinstance(error,Interrupted):raise
+                changed=self.last_network_change>=started
+                incomplete=isinstance(error,StudyError) and str(error).startswith(('课程目录加载超时','课程页面连接超时'))
+                navigation_changed='net::ERR_NETWORK_CHANGED' in str(error)
+                if attempt or not ((changed and incomplete) or navigation_changed):raise
+                self.checkpoint()
+                self.log('页面加载期间检测到网络切换，重新连接同一课程页面一次；任务状态与提交记录保持核验')
+                self.wait(2)
+
+    def _goto_once(self, url):
         self.checkpoint()
         parts = urlsplit(url)
         if parts.scheme != "https" or not (parts.hostname or "").endswith(".chaoxing.com"):
