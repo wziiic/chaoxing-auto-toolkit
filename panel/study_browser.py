@@ -70,6 +70,7 @@ class CourseBrowser:
         self.dialog = False
         self.cancel_dialog = False
         self.last_diagnostic = 0
+        self.network_diagnostics = {}
         self.action_lock = None
         self.headless = True
         self.embedded_receipts = {}
@@ -118,7 +119,7 @@ class CourseBrowser:
             self.page.set_default_timeout(4000)
             self.page.on("dialog", self._dialog)
             self.page.on("pageerror", lambda error: self.diagnostic("课程页面脚本报错；如影响播放，请在课程窗口检查，错误未被屏蔽"))
-            self.page.on("requestfailed", lambda request: self.diagnostic("课程窗口出现网络请求失败；若媒体缓冲或目录缺失，请检查连接"))
+            self.page.on("requestfailed", self.request_failed)
 
     def assistant_script(self, route):
         # This optional tutor SDK can block HTML parsing for over a minute.
@@ -190,6 +191,18 @@ class CourseBrowser:
         if time.monotonic() - self.last_diagnostic > 15:
             self.last_diagnostic = time.monotonic()
             self.log(message)
+
+    def request_failed(self, request):
+        # Keep transport evidence, never signed URLs, query strings or payloads.
+        error=re.search(r'net::ERR_[A-Z_]+',str(request.failure or ''))
+        code=error.group(0) if error else '未知网络错误'
+        if code=='net::ERR_ABORTED':return  # Expected during native navigation.
+        host=urlsplit(request.url).hostname or '未知主机'
+        now=time.monotonic()
+        if now-self.network_diagnostics.get(code,float('-inf'))<15:return
+        self.network_diagnostics={key:at for key,at in self.network_diagnostics.items() if now-at<15}
+        self.network_diagnostics[code]=now
+        self.log('课程资源请求失败：'+host+' / '+request.resource_type+' / '+code+'；页面可能尚未加载完整')
 
     def _dialog(self, dialog):
         self.dialog = True

@@ -502,6 +502,8 @@ class StudyManager:
                 try:
                     self.driver.activate(task)
                     platform = self.driver.platform(task)
+                    if platform=='unknown' and task['kind'] in ('video','audio'):
+                        platform=self.await_media_platform(task)
                     self.update(task, platform=platform)
                     if task['kind'] in ('video','audio','document','image','unknown') and self.driver.optional_resource(task):
                         self.update(task,is_task_point=False,reference_only=True,platform='not_applicable',status='reference',verified=False,reason='资料已与页面对应且无必做标记，属于参考资料')
@@ -821,6 +823,38 @@ class StudyManager:
     def model(self, questions):
         return normalize_answers(questions, self.request_model(study_prompt(questions)))
 
+    def reconnect_task_read(self, task, label):
+        self.update(task,status='waiting_network',reason=label+'尚未加载，等待连接恢复后重新读取当前任务')
+        self.update(network_recovering=True)
+        try:
+            self.log(label+'暂未加载，等待网络并重新读取当前任务；不会执行或提交任务')
+            while True:
+                self.checkpoint()
+                if not self.driver.network_available():
+                    self.driver.wait(5)
+                    continue
+                try:
+                    self.driver.reload_current_task(task)
+                    break
+                except NetworkInterrupted:
+                    self.driver.wait(5)
+            return self.driver.platform(task)
+        finally:
+            with self.lock:
+                self.state['network_recovering']=False
+                self.store.save(self.state)
+
+    def await_media_platform(self, task):
+        for reading in range(2):
+            for _ in range(20):
+                self.driver.wait(.5)
+                platform=self.driver.platform(task)
+                if platform!='unknown':return platform
+            if reading or not hasattr(self.driver,'reload_current_task'):return 'unknown'
+            platform=self.reconnect_task_read(task,'媒体任务状态')
+            if platform!='unknown':return platform
+        return 'unknown'
+
     def await_discussion_topic(self, task):
         recovering=False
         try:
@@ -838,21 +872,8 @@ class StudyManager:
                 if reading or not hasattr(self.driver,'reload_current_task'):return ''
                 # No model generation or publication has happened. Retry only the
                 # read, and only this task, rather than consuming queue attempts.
-                self.update(task,status='waiting_network',reason='讨论内容尚未加载，等待连接恢复后重新读取当前任务')
-                self.update(network_recovering=True)
                 recovering=True
-                self.log('讨论题目暂未加载，等待网络并重新读取当前任务；尚未生成或发布')
-                while True:
-                    self.checkpoint()
-                    if not self.driver.network_available():
-                        self.driver.wait(5)
-                        continue
-                    try:
-                        self.driver.reload_current_task(task)
-                        break
-                    except NetworkInterrupted:
-                        self.driver.wait(5)
-                platform=self.driver.platform(task)
+                platform=self.reconnect_task_read(task,'讨论题目')
                 if platform=='done':
                     self.complete(task)
                     return ''

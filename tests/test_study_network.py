@@ -219,8 +219,40 @@ class NetworkQueueTests(unittest.TestCase):
             with self.assertRaisesRegex(StudyError,'需要登录'):manager.await_discussion_topic(task)
             self.assertEqual(topic.call_count,1)
 
+    def test_delayed_media_platform_waits_before_declaring_unknown(self):
+        manager,task=self.manager()
+        with patch.object(manager.driver,'platform',side_effect=['unknown','todo']), \
+             patch.object(manager.driver,'reload_current_task',create=True) as reload:
+            self.assertEqual(manager.await_media_platform(task),'todo')
+        reload.assert_not_called()
+
+    def test_media_unknown_state_reloads_once_and_never_guesses(self):
+        manager,task=self.manager()
+        with patch.object(manager.driver,'platform',return_value='unknown'), \
+             patch.object(manager.driver,'reload_current_task',create=True) as reload:
+            self.assertEqual(manager.await_media_platform(task),'unknown')
+        reload.assert_called_once_with(task)
+        self.assertEqual(manager.driver.play_count,0)
+        self.assertFalse(manager.snapshot()['network_recovering'])
+
 
 class PowerTests(unittest.TestCase):
+    def test_transport_diagnostic_keeps_error_but_hides_signed_url(self):
+        from types import SimpleNamespace
+        driver=CourseBrowser(lambda:None,lambda _:None)
+        with patch.object(driver,'log') as log:
+            driver.request_failed(SimpleNamespace(url='https://mooc1.chaoxing.com/private?enc=secret',resource_type='script',failure='net::ERR_NETWORK_CHANGED'))
+            message=log.call_args.args[0]
+            self.assertIn('ERR_NETWORK_CHANGED',message)
+            self.assertIn('script',message)
+            self.assertNotIn('secret',message)
+            self.assertNotIn('/private',message)
+            driver.request_failed(SimpleNamespace(url='https://mooc1.chaoxing.com/',resource_type='script',failure='net::ERR_NETWORK_CHANGED'))
+            self.assertEqual(log.call_count,1)
+            log.reset_mock()
+            driver.request_failed(SimpleNamespace(url='https://mooc1.chaoxing.com/',resource_type='document',failure='net::ERR_ABORTED'))
+            log.assert_not_called()
+
     def test_awake_request_restores_previous_flags_on_failure(self):
         from study_power import learning_awake
         with patch('study_power.os.name','nt'), \
