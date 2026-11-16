@@ -102,7 +102,7 @@
     byId('currentTask').textContent=task?task.title:(next.current||'当前没有执行任务');
     const progress=task?.progress||{};
     byId('progress').max=progress.duration||1;byId('progress').value=progress.current||0;
-    byId('progressText').textContent=progress.duration?`${Math.floor(progress.current)} / ${Math.floor(progress.duration)} 秒 · ${progress.rate||1}×`:'—';
+    byId('progressText').textContent=progress.duration?`${Math.floor(progress.current)} / ${Math.floor(progress.duration)} 秒 · ${progress.rate||1}×`:({loading:'等待课件内容加载',reading:'正在阅读课件，完成后核验平台状态',done:'课件已由平台核验完成'}[task?.reading_progress?.phase]||'—');
     const oldScroll=byId('log').scrollTop, atEnd=byId('log').scrollHeight-byId('log').clientHeight-oldScroll<30;
     byId('log').textContent=next.logs.map(item=>`${item.time}  ${item.message}`).join('\n')||'等待任务…';
     if(atEnd)byId('log').scrollTop=byId('log').scrollHeight;else byId('log').scrollTop=oldScroll;

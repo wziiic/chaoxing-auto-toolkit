@@ -521,7 +521,11 @@ class StudyManager:
                         self.verify(task)
                         if task["status"] == "done":
                             continue
-                        raise StudyError("先前动作已结束，平台仍未确认；只核验，不重复执行")
+                        if task['kind'] in ('text','document') and task.get('platform')=='todo' and not task.get('submission'):
+                            self.update(task,action_finished=False)
+                            self.log('平台仍标记阅读任务未完成，允许重新定位并继续阅读；不重复答题或发布')
+                        else:
+                            raise StudyError("先前动作已结束，平台仍未确认；只核验，不重复执行")
                     if platform == "unknown" and task['kind'] not in ('text','document'):
                         raise StudyError("平台任务状态未知；请手动检查并刷新，不能直接当作未完成执行")
                     if task["attempts"] >= 3:
@@ -972,18 +976,42 @@ class StudyManager:
     def read(self, task):
         started = time.monotonic()
         stable = 0
+        reloads=0
+        loading_since=started
         self.log('正在滚动课件内部阅读区域，随后核验平台完成状态')
         for step in range(120):
             self.checkpoint()
             elapsed = time.monotonic() - started
             if elapsed >= 600:
                 break
+            if hasattr(self.driver,'reading_ready') and not self.driver.reading_ready(task):
+                stable=0
+                self.update(task,action_finished=False,reading_progress={'phase':'loading','steps':step})
+                if time.monotonic()-loading_since>=60:
+                    if reloads:raise StudyError('课件阅读器重连后仍未加载完整，未标记阅读结束；请检查课件资源连接')
+                    self.reconnect_task_read(task,'课件阅读器')
+                    reloads+=1
+                    loading_since=time.monotonic()
+                    self.update(task,status='running',reason='')
+                self.driver.wait(1)
+                continue
+            loading_since=time.monotonic()
             moved = self.driver.read_step(task, elapsed=elapsed, remaining=600-elapsed)
+            self.update(task,reading_progress={'phase':'reading','steps':step+1,'moved':bool(moved)})
             stable = 0 if moved else stable + 1
             self.driver.wait(1)
             if stable >= 2:
                 self.update(task, action_finished=True)
-                self.verify(task)
+                if self.verify(task):
+                    self.update(task,reading_progress={'phase':'done','steps':step+1})
+                    return
+                if not reloads and hasattr(self.driver,'reading_ready') and task.get('platform')=='todo':
+                    self.log('阅读动作未获平台确认，重连阅读器并继续实际阅读一次')
+                    self.reconnect_task_read(task,'课件完成状态')
+                    reloads+=1
+                    stable=0
+                    self.update(task,status='running',reason='',action_finished=False)
+                    continue
                 return
         raise StudyError('课件滚动或翻页仍未结束，已达本轮阅读观察上限；请在原页面检查')
 

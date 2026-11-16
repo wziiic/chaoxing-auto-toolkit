@@ -1055,6 +1055,32 @@ class CourseBrowser:
             for frame,root in frames:
                 if root:root.dispose()
 
+    def reading_ready(self, task):
+        if task.get('kind')!='document':return True
+        native=False
+        rendered=False
+        try:frames=self.scoped_frames(task)
+        except StudyError as error:
+            if str(error).startswith(('任务节点已替换或尚未加载','所有 frame 均无法读取')):return False
+            raise
+        for frame,root in frames:
+            try:
+                if root:
+                    if root.is_visible():self.perform(lambda:root.scroll_into_view_if_needed(timeout=3000))
+                    native=native or root.evaluate("e=>Array.from(e.querySelectorAll('iframe')).some(i=>/ananas\\/modules\\/(?:zt\\/)?pdf\\/index/.test(i.getAttribute('src')||''))")
+                path=urlsplit(frame.url).path
+                if re.search(r'/ananas/modules/(?:zt/)?pdf/index',path):native=True
+                if not (path.startswith('/screen/') or 'pdfjs' in path.lower()):continue
+                rendered=rendered or frame.evaluate("""()=>{
+                    const visible=e=>{const r=e.getBoundingClientRect();return r.width>100&&r.height>0&&r.bottom>0&&r.top<innerHeight};
+                    const images=Array.from(document.images).filter(visible);
+                    const canvases=Array.from(document.querySelectorAll('canvas')).filter(visible);
+                    return document.readyState!=='loading'&&((images.length>0&&images.every(e=>e.complete&&e.naturalWidth>0))||canvases.some(e=>e.width>100&&e.height>100));
+                }""")
+            finally:
+                if root:root.dispose()
+        return not native or rendered
+
     def read_step(self, task, elapsed=0, remaining=600):
         frames = self.scoped_frames(task)
         try:
