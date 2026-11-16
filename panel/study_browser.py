@@ -614,6 +614,9 @@ class CourseBrowser:
         return result
 
     def reload_media_task(self, task):
+        return self.reload_current_task(task)
+
+    def reload_current_task(self, task):
         from study_directory import platform_url
         # Re-enter only this task; let the platform restore its recorded position.
         # Do not seek the media timeline or rebuild the course directory.

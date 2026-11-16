@@ -162,6 +162,63 @@ class NetworkQueueTests(unittest.TestCase):
             with self.assertRaises(Interrupted):manager.request_model('题目')
         self.assertEqual(model.call_count,1)
 
+    def test_discussion_late_topic_waits_without_reloading(self):
+        manager,task=self.manager()
+        with patch.object(manager.driver,'discussion_topic',create=True,side_effect=['','真实讨论题目']), \
+             patch.object(manager.driver,'reload_current_task',create=True) as reload:
+            self.assertEqual(manager.await_discussion_topic(task),'真实讨论题目')
+        reload.assert_not_called()
+
+    def test_discussion_offline_empty_topic_reloads_only_current_task(self):
+        manager,task=self.manager()
+        task['kind']='discussion'
+        with patch.object(manager.driver,'discussion_topic',create=True,side_effect=['']*20+['真实讨论题目']), \
+             patch.object(manager.driver,'network_available',side_effect=[False,True,True]), \
+             patch.object(manager.driver,'reload_current_task',create=True,side_effect=[NetworkInterrupted('flap'),None]) as reload:
+            self.assertEqual(manager.await_discussion_topic(task),'真实讨论题目')
+        self.assertEqual(reload.call_count,2)
+        self.assertEqual(task['attempts'],1)
+        self.assertEqual(manager.driver.scan_count,1)
+        self.assertEqual(manager.driver.submit_count,0)
+        self.assertFalse(manager.snapshot()['network_recovering'])
+
+    def test_discussion_still_empty_after_reload_never_generates(self):
+        manager,task=self.manager()
+        with patch.object(manager.driver,'discussion_topic',create=True,return_value=''), \
+             patch.object(manager.driver,'reload_current_task',create=True) as reload, \
+             patch.object(manager,'request_model') as model:
+            with self.assertRaisesRegex(StudyError,'未读取到讨论题目'):manager.generate_discussion(task)
+        reload.assert_called_once_with(task);model.assert_not_called()
+
+    def test_discussion_already_done_after_reload_skips_generation(self):
+        manager,task=self.manager()
+        with patch.object(manager.driver,'discussion_topic',create=True,return_value=''), \
+             patch.object(manager.driver,'reload_current_task',create=True), \
+             patch.object(manager.driver,'platform',return_value='done'), \
+             patch.object(manager,'request_model') as model:
+            self.assertEqual(manager.generate_discussion(task),'')
+        self.assertEqual(task['status'],'done');model.assert_not_called()
+
+    def test_discussion_reconnect_respects_pause_and_clears_marker(self):
+        manager,task=self.manager()
+        def cancel_wait(seconds):
+            if seconds>=5:manager.epoch+=1
+            manager.checkpoint()
+        with patch.object(manager.driver,'discussion_topic',create=True,return_value=''), \
+             patch.object(manager.driver,'reload_current_task',create=True) as reload, \
+             patch.object(manager.driver,'network_available',return_value=False), \
+             patch.object(manager.driver,'wait',side_effect=cancel_wait):
+            with self.assertRaises(Interrupted):manager.await_discussion_topic(task)
+        reload.assert_not_called();self.assertFalse(manager.snapshot()['network_recovering'])
+
+    def test_discussion_missing_frame_waits_but_login_error_is_not_retried(self):
+        manager,task=self.manager()
+        with patch.object(manager.driver,'discussion_topic',create=True,side_effect=[StudyError('任务节点已替换或尚未加载'),'题目']):
+            self.assertEqual(manager.await_discussion_topic(task),'题目')
+        with patch.object(manager.driver,'discussion_topic',create=True,side_effect=StudyError('需要登录')) as topic:
+            with self.assertRaisesRegex(StudyError,'需要登录'):manager.await_discussion_topic(task)
+            self.assertEqual(topic.call_count,1)
+
 
 class PowerTests(unittest.TestCase):
     def test_awake_request_restores_previous_flags_on_failure(self):

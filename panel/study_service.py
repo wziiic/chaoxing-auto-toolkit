@@ -548,6 +548,7 @@ class StudyManager:
                             text=task.get('discussion_draft','').strip()
                             if not text and options.get('auto_submit_discussion'):
                                 text=self.generate_discussion(task)
+                                if task.get('status')=='done':continue
                             self.handle_discussion(task,text,True)
                     else:
                         raise StudyError("此任务类型尚未支持自动执行，请打开原页面处理")
@@ -820,8 +821,54 @@ class StudyManager:
     def model(self, questions):
         return normalize_answers(questions, self.request_model(study_prompt(questions)))
 
+    def await_discussion_topic(self, task):
+        recovering=False
+        try:
+            for reading in range(2):
+                for _ in range(20):
+                    self.checkpoint()
+                    try:
+                        topic=self.driver.discussion_topic(task)
+                    except StudyError as error:
+                        if not isinstance(error,MediaLoading) and not str(error).startswith(('任务节点已替换或尚未加载','所有 frame 均无法读取')):
+                            raise
+                        topic=''
+                    if topic:return topic
+                    self.driver.wait(.5)
+                if reading or not hasattr(self.driver,'reload_current_task'):return ''
+                # No model generation or publication has happened. Retry only the
+                # read, and only this task, rather than consuming queue attempts.
+                self.update(task,status='waiting_network',reason='讨论内容尚未加载，等待连接恢复后重新读取当前任务')
+                self.update(network_recovering=True)
+                recovering=True
+                self.log('讨论题目暂未加载，等待网络并重新读取当前任务；尚未生成或发布')
+                while True:
+                    self.checkpoint()
+                    if not self.driver.network_available():
+                        self.driver.wait(5)
+                        continue
+                    try:
+                        self.driver.reload_current_task(task)
+                        break
+                    except NetworkInterrupted:
+                        self.driver.wait(5)
+                platform=self.driver.platform(task)
+                if platform=='done':
+                    self.complete(task)
+                    return ''
+                if platform not in ('todo','running'):
+                    raise StudyError('重连后讨论任务状态未确认或已锁定，未生成或发布')
+                self.update(task,status='running',reason='')
+            return ''
+        finally:
+            if recovering:
+                with self.lock:
+                    self.state['network_recovering']=False
+                    self.store.save(self.state)
+
     def generate_discussion(self, task):
-        topic=self.driver.discussion_topic(task)
+        topic=self.await_discussion_topic(task)
+        if task.get('status')=='done':return ''
         if not topic:
             raise StudyError('未读取到讨论题目，请打开原页面检查；未生成或发布')
         self.update(task,status='waiting_model',reason='正在生成简短讨论正文')
