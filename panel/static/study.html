@@ -42,6 +42,7 @@
       <p class="hint">练习与讨论使用设置中的模型配置。勾选“自动提交讨论”后，必做讨论会生成简短口语化正文并提交。普通练习开启自动提交后不再逐题询问；正式考试仅手动处理。平台未提供所选倍速时自动使用 1×。</p>
       <div class="row controls"><button id="all" class="primary">开始学习</button><button id="pause">暂停</button><button id="resume">继续学习</button><button id="stop" class="danger">停止</button><button id="selected">开始选中任务</button><button id="retry">重试失败 / 核验任务</button><button id="export">导出脱敏记录</button></div>
       <label class="approval"><input id="allowRestricted" type="checkbox"> 我已查看原页面限制，授权当前选中的限次练习（不适用于正式考试）</label>
+      <label class="approval"><input id="allowCourseRestricted" type="checkbox"> 授权当前课程的限次章节练习（仅此课程，仍按平台次数与提交要求执行，不适用于正式考试）</label>
       <div class="metrics"><div><span>已发现任务点</span><strong id="discovered">0</strong></div><div><span>已核验完成</span><strong id="verified">0</strong></div><div><span>失败</span><strong id="failed">0</strong></div><div><span>需人工处理</span><strong id="manual">0</strong></div><div><span>等待核验</span><strong id="waiting_verification">0</strong></div></div>
       <div class="current"><span id="currentTask">当前没有执行任务</span><progress id="progress" value="0" max="1"></progress><span id="progressText">—</span></div>
     </section>

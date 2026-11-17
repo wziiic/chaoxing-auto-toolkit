@@ -12,6 +12,11 @@ class StudyError(Exception):
     pass
 
 
+class AnswerFormatError(StudyError):
+    """Model output failed validation before any form interaction."""
+    pass
+
+
 class PlaybackPaused(StudyError):
     """An interrupted viewing session, rather than a failed task attempt."""
     pass
@@ -130,7 +135,7 @@ def study_prompt(questions):
 
 def normalize_answers(questions, raw):
     if not isinstance(raw, dict):
-        raise StudyError("模型输出不是 JSON 对象")
+        raise AnswerFormatError("模型输出不是 JSON 对象")
     result = {}
     for question in questions:
         answer = raw.get(question["qid"])
@@ -138,17 +143,22 @@ def normalize_answers(questions, raw):
         if question["type"] == "填空题":
             if (not isinstance(answer, list) or len(answer) != question["blanks"]
                     or any(not isinstance(item, str) or not item.strip() or len(item) > 4000 for item in answer)):
-                raise StudyError("模型填空结果缺失或空格数量不匹配")
+                raise AnswerFormatError("模型填空结果缺失或空格数量不匹配")
         else:
+            # Native judgement controls use string values; JSON booleans have
+            # the identical meaning only for these exact true/false controls.
+            if question['type']=='判断题' and set(choices)=={'true','false'}:
+                if isinstance(answer,bool):answer='true' if answer else 'false'
+                elif isinstance(answer,list):answer=['true' if item is True else 'false' if item is False else item for item in answer]
             if question["type"] == "多选题":
                 if not isinstance(answer, list) or not answer or len(set(map(str, answer))) != len(answer):
-                    raise StudyError("模型多选结果必须是非空且无重复的选项数组")
+                    raise AnswerFormatError("模型多选结果必须是非空且无重复的选项数组")
             else:
                 if isinstance(answer,list) and len(answer)==1:
                     answer=answer[0]
                 answer = [answer]
             if any(not isinstance(item, str) or item not in choices for item in answer):
-                raise StudyError("模型答案无法精确匹配题目选项")
+                raise AnswerFormatError("模型答案无法精确匹配题目选项")
         result[question["qid"]] = answer
     return result
 
@@ -247,6 +257,10 @@ class StudyStore:
     def pending_intent(self, course, task):
         with self.connect() as connection:
             return connection.execute("SELECT 1 FROM submissions WHERE course=? AND task=? AND state='intent' LIMIT 1", (course, task)).fetchone() is not None
+
+    def answer_activity(self, course, task):
+        with self.connect() as connection:
+            return connection.execute('SELECT 1 FROM submissions WHERE course=? AND task=? LIMIT 1',(course,task)).fetchone() is not None
 
     def pending_discussion(self, course, task):
         with self.connect() as connection:

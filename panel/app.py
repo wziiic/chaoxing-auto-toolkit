@@ -449,6 +449,7 @@ class StudyControlReq(BaseModel):
     rate: float = Field(default=1, ge=0.5, le=2)
     manual_policy: str = "pause"
     approved_task_ids: List[str] = []
+    approved_course_ids: Optional[List[str]] = None
     task_id: Optional[str] = None
     acknowledge_unsubmitted: bool = False
     discussion_text: str = Field(default="", max_length=6000)

@@ -109,14 +109,16 @@ class PlaylistTests(unittest.TestCase):
         self.assertEqual(manager.playlist.snapshot()['items'],[])
 
     def test_no_cross_course_limited_attempt_approval(self):
-        manager=self.manager();self.add(manager);observed=[]
+        manager=self.manager();self.add(manager);observed=[];permissions=[]
+        approved=manager.playlist.snapshot()['items'][0]['id']
         def run(action,payload):
-            observed.append(copy.deepcopy(payload));self.finish(manager,action,payload)
+            observed.append(copy.deepcopy(payload));permissions.append(manager.restricted_approved({'id':'t'},payload));self.finish(manager,action,payload)
         with patch.object(manager,'run',side_effect=run):
-            manager.playlist.command('start',options={'auto_fill':True,'approved_task_ids':['t'],'rate':2,'mute':True})
+            manager.playlist.command('start',options={'auto_fill':True,'approved_task_ids':['t'],'approved_course_ids':[approved],'rate':2,'mute':True})
             until(lambda:manager.playlist.snapshot()['status']=='done')
         self.assertEqual(len(observed),2)
         self.assertTrue(all(p['approved_task_ids']==[] and p['rate']==2 and p['mute'] for p in observed))
+        self.assertEqual(permissions,[True,False])
 
     def test_stop_is_preserved_on_interruption(self):
         manager=self.manager();self.add(manager);entered=threading.Event()

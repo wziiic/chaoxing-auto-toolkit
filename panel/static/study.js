@@ -12,6 +12,7 @@
   let settingsSave = Promise.resolve();
   let displayedCourseUrl = '';
   let discussionTask = null;
+  let approvalCourse='';
   const animations=new Map();
   const catLines=['(=^･ω･^=) 快了喵快了喵','(ฅ•̀ω•́ฅ) 很努力的加载了别催喵','(つ﹏⊂) 哇...被作业吓哭了喵','(￢ω￢) 我没有在偷懒喵（目移）','(｡•̀ᴗ-)✧ 老大我们这样不会被发现喵','(〃ω〃) 不学习的杂鱼❤......没有不喜欢你喵！','(－ω－) Zzz','Ciallo～(∠・ω< )⌒☆','(ฅ´ω`ฅ) 正在把任务点一颗颗叼回来喵','(｡•́︿•̀｡) 作业好多，尾巴都打结了喵','(๑•̀ㅂ•́)و✧ 再等一下就给你看成果喵'];
   let tipPair=[],tipIndex=0,tipTimer=null;
@@ -37,7 +38,11 @@
   }
   function message(text, error=false) { byId('message').textContent=text; byId('message').classList.toggle('error',error); }
   function element(tag, text, className) { const node=document.createElement(tag); if(text!==undefined)node.textContent=text; if(className)node.className=className; return node; }
-  function options() { return {auto_fill:byId('autoFill').checked,auto_submit:byId('autoSubmit').checked,mute:byId('mutePlayback').checked,auto_submit_discussion:byId('autoSubmitDiscussion').checked,rate:Number(byId('rate').value),manual_policy:byId('manualPolicy').value,approved_task_ids:byId('allowRestricted').checked?Array.from(selected):[]}; }
+  function options() {
+    const courses=new Set(state?.options?.approved_course_ids||[]);
+    if(state?.course_id){if(byId('allowCourseRestricted').checked)courses.add(state.course_id);else courses.delete(state.course_id);}
+    return {auto_fill:byId('autoFill').checked,auto_submit:byId('autoSubmit').checked,mute:byId('mutePlayback').checked,auto_submit_discussion:byId('autoSubmitDiscussion').checked,rate:Number(byId('rate').value),manual_policy:byId('manualPolicy').value,approved_task_ids:byId('allowRestricted').checked?Array.from(selected):[],approved_course_ids:Array.from(courses)};
+  }
   function saveSettings() {
     const payload={action:'settings',...options(),task_ids:Array.from(selected)};
     settingsSave=settingsSave.catch(()=>{}).then(()=>api('/api/study/control',payload)).catch(error=>{if(error.name!=='AbortError')message(error.message,true)});
@@ -75,6 +80,8 @@
   }
   function render(next) {
     state=next;
+    if(approvalCourse!==next.course_id){approvalCourse=next.course_id;byId('allowCourseRestricted').checked=!!next.options?.approved_course_ids?.includes(next.course_id);}
+    byId('allowCourseRestricted').disabled=!next.loaded;
     renderPlaylist(next);
     liquid('settings',next.read_progress);
     byId('connection').textContent=next.worker_responsive?'服务已连接':'队列长时间无响应；请关闭课程浏览器后重新读取';
@@ -284,7 +291,7 @@
   byId('all').addEventListener('click',()=>hasPlaylist()?playlistCommand('start'):startLearning([]));
   byId('selected').addEventListener('click',()=>selected.size?startLearning(Array.from(selected)):message('请先选择任务',true));
   for(const action of ['pause','resume','stop','retry'])byId(action).addEventListener('click',()=>hasPlaylist()&&action==='resume'?playlistCommand('resume'):command(action));
-  for(const id of ['autoFill','autoSubmit','autoSubmitDiscussion','mutePlayback','rate','manualPolicy','allowRestricted'])byId(id).addEventListener('change',async()=>{if(state?.status==='running')await command('pause');await saveSettings()});
+  for(const id of ['autoFill','autoSubmit','autoSubmitDiscussion','mutePlayback','rate','manualPolicy','allowRestricted','allowCourseRestricted'])byId(id).addEventListener('change',async()=>{if(state?.status==='running')await command('pause');await saveSettings()});
   byId('selectAll').addEventListener('change',event=>{selected.clear();if(event.target.checked)for(const task of state?.tasks||[])selected.add(task.id);if(state)render(state);saveSettings()});
   byId('export').addEventListener('click',async()=>{try{const result=await api('/api/study/export');const url=URL.createObjectURL(new Blob([JSON.stringify(result,null,2)],{type:'application/json'}));const link=element('a');link.href=url;link.download='课程执行记录.json';link.click();URL.revokeObjectURL(url);}catch(error){message(error.message,true)}});
   async function poll(){try{render(await api('/api/study'));}catch(error){if(error.name!=='AbortError'){byId('connection').textContent='连接失败';message(error.message,true);}}finally{if(!controller.signal.aborted)timer=setTimeout(poll,1500);}}

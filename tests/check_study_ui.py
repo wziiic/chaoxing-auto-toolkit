@@ -10,7 +10,7 @@ from playwright.sync_api import sync_playwright
 
 
 def main():
-    state = {"course_id": "fixture-only", "url": "", "status": "ready", "message": "页面夹具核验：没有连接真实课程", "worker_responsive": True, "loaded": True,
+    state = {"course_id": "a"*24, "url": "", "status": "ready", "message": "页面夹具核验：没有连接真实课程", "worker_responsive": True, "loaded": True,
              "catalog_complete": False, "current": "", "logs": [{"time": "12:00:00", "message": "夹具任务已加载"}], "options": {},
              "counts": {"discovered": 2, "verified": 0, "failed": 0, "manual": 1, "waiting_verification": 0},
              "chapters": [{"id": "101", "title": "第一章 · 页面夹具", "parent_id": ""}],
@@ -213,6 +213,12 @@ def main():
         assert discussions[-1]['publish_discussion']
         assert discussions[-1]['discussion_text']=='Fixture discussion body'
         page.locator('#closeDiscussion').click()
+        with page.expect_response(lambda r:r.url.endswith('/api/study/control') and r.request.post_data_json.get('action')=='settings'):
+            page.locator('#allowCourseRestricted').check()
+        assert settings[-1]['approved_course_ids']==[state['course_id']]
+        with page.expect_response(lambda r:r.url.endswith('/api/study/control') and r.request.post_data_json.get('action')=='settings'):
+            page.locator('#allowCourseRestricted').uncheck()
+        assert settings[-1]['approved_course_ids']==[]
         output = ROOT / '本地资料' / '课程学习页面核对.png'
         page.screenshot(path=str(output), full_page=True)
         page.set_viewport_size({"width": 390, "height": 844})

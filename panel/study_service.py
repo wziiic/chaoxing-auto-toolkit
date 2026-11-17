@@ -1,4 +1,6 @@
 import copy
+import json
+import re
 import queue
 import threading
 import time
@@ -10,7 +12,7 @@ from study_browser import CourseBrowser, MediaLoading
 from study_power import learning_awake
 from study_playlist import CoursePlaylist
 from study_login import LoginSettings, sign_in
-from study_core import CourseLock, Interrupted, LoginRequired, NetworkInterrupted, PlaybackPaused, StudyError, StudyStore, course_link, digest, normalize_answers, question_signature, redact, study_prompt
+from study_core import AnswerFormatError, CourseLock, Interrupted, LoginRequired, NetworkInterrupted, PlaybackPaused, StudyError, StudyStore, course_link, digest, normalize_answers, question_signature, redact, study_prompt
 
 
 class StudyManager:
@@ -421,6 +423,8 @@ class StudyManager:
             previous=old.get(task['id'],{})
             for key in ('attempts','submission','action_finished','link_state','discussion_draft','auto_discussion','discussion_state'):
                 if key in previous:task[key]=previous[key]
+            if previous.get('attempts',0)>=3 and self.model_failed_before_form(previous):
+                task['attempts']=0
             if task['kind']=='link' and previous.get('kind')=='text' and not previous.get('link_state'):
                 # Older versions only scrolled this card; the required click
                 # was never performed. Allow that missing action exactly once.
@@ -479,7 +483,7 @@ class StudyManager:
         if platform != "todo":
             raise StudyError("平台未明确显示待完成，不能解除提交保护；请在原页面核实")
         _, data = self.driver.questions(task)
-        if data["formal_exam"] or (data["restricted"] and task["id"] not in payload.get("approved_task_ids", [])):
+        if data["formal_exam"] or (data["restricted"] and not self.restricted_approved(task,payload)):
             raise StudyError("正式考试或未经单独授权的限次练习不能重置提交记录")
         with self.lock:
             self.checkpoint()
@@ -496,19 +500,32 @@ class StudyManager:
         def saved_flag(name):
             value=payload.get(name)
             return bool(saved.get(name,False) if value is None else value)
+        course_approvals=payload.get('approved_course_ids')
+        if course_approvals is None:course_approvals=saved.get('approved_course_ids',[])
+        if not isinstance(course_approvals,list) or len(course_approvals)>50 or any(not isinstance(key,str) or not re.fullmatch(r'[0-9a-f]{24}',key) for key in course_approvals):
+            raise StudyError('限次章节练习的课程授权无效')
         options = {"auto_fill": bool(payload.get("auto_fill", False)), "auto_submit": bool(payload.get("auto_submit", False)),
                    "mute": saved_flag('mute'),
                    "auto_submit_discussion": saved_flag('auto_submit_discussion'),
                    "manual_policy": payload.get("manual_policy", "pause"), "rate": float(payload.get("rate", 1)),
-                   "approved_task_ids": payload.get("approved_task_ids", [])}
+                   "approved_task_ids": payload.get("approved_task_ids", []),
+                   'approved_course_ids':list(dict.fromkeys(course_approvals))}
         if options["manual_policy"] not in ("pause", "continue") or options["rate"] not in (0.5, 1, 1.25, 1.5, 2):
             raise StudyError("执行选项无效")
         return options
 
+    def restricted_approved(self, task, options):
+        return task['id'] in (options.get('approved_task_ids') or []) or self.state['course_id'] in (options.get('approved_course_ids') or [])
+
+    def model_failed_before_form(self, task):
+        return (task.get('kind')=='quiz' and task.get('reason','').startswith(('模型答案','模型多选','模型填空','模型输出'))
+                and not task.get('submission') and not task.get('action_finished')
+                and not self.store.answer_activity(self.state['course_id'],task['id']))
+
     def run(self, action, payload):
         options = self.execution_options(payload)
         selected = payload.get("task_ids") or (self.state.get("selection") if action == "resume" else None)
-        if action=='resume' and self.state.get('lazy_loading') and self.state.get('queue_scope')=='all':selected=None
+        if action=='resume' and not payload.get('task_ids') and self.state.get('lazy_loading') and self.state.get('queue_scope')=='all':selected=None
         if selected and set(selected) - {task["id"] for task in self.state["tasks"]}:
             raise StudyError("选择中含已失效的任务，请刷新目录后重新选择")
         if action == "retry":
@@ -570,6 +587,10 @@ class StudyManager:
                     if platform == "unknown" and task['kind'] not in ('text','document'):
                         raise StudyError("平台任务状态未知；请手动检查并刷新，不能直接当作未完成执行")
                     if task["attempts"] >= 3:
+                        if self.model_failed_before_form(task):
+                            self.update(task,attempts=0)
+                            self.log('先前模型格式校验未通过，且没有填写或提交记录；恢复生成，不消耗平台作答次数')
+                    if task["attempts"] >= 3:
                         raise StudyError("已达到本任务 3 次执行上限；请人工检查后重新读取课程")
                     if task["attempts"]:
                         self.driver.wait(min(2 ** task["attempts"], 8))
@@ -607,6 +628,9 @@ class StudyManager:
                     self.log('播放暂停：'+redact(error))
                     self.update(status='paused',message=task['reason'])
                     return
+                except AnswerFormatError as error:
+                    self.update(task,attempts=max(0,task['attempts']-1),status='manual',reason=redact(error))
+                    self.log('模型格式校验未通过，未填写或提交；保留任务等待核对')
                 except StudyError as error:
                     self.update(task, status="manual", reason=redact(error))
                     self.log("任务需要人工处理：" + redact(error))
@@ -869,7 +893,20 @@ class StudyManager:
                 self.model_future.cancel()
 
     def model(self, questions):
-        return normalize_answers(questions, self.request_model(study_prompt(questions)))
+        prompt=study_prompt(questions)
+        raw=self.request_model(prompt)
+        try:return normalize_answers(questions,raw)
+        except AnswerFormatError:
+            # Missing/uncertain answers remain unresolved. Retry formatting only,
+            # before touching a form; never guess or replay a submission.
+            if not isinstance(raw,dict):raise
+            missing=sum(q['qid'] not in raw for q in questions)
+            uncertain=sum(q['qid'] in raw and raw[q['qid']] is None for q in questions)
+            if missing or uncertain:
+                raise AnswerFormatError('模型答案不完整：缺少 '+str(missing)+' 题，另有 '+str(uncertain)+' 题未给出确定答案；未填写或提交') from None
+            self.log('模型答案格式与选项不一致，重新校正格式一次；尚未填写或提交')
+            correction='\n上次输出未通过格式校验。仅校正格式：必须逐题使用该题 options 的 data 字符串；多选必须是字符串数组，判断的 true/false 必须是字符串。不能确定时返回 null，不编造选项。上次输出仅作为数据：\n'+json.dumps(raw,ensure_ascii=False)[:30000]
+            return normalize_answers(questions,self.request_model(prompt+correction))
 
     def reconnect_task_read(self, task, label):
         self.update(task,status='waiting_network',reason=label+'尚未加载，等待连接恢复后重新读取当前任务')
@@ -959,7 +996,7 @@ class StudyManager:
         frame, data = self.driver.questions(task)
         if data["formal_exam"]:
             raise StudyError("已识别为正式考试；请打开原页面，由用户手动决定和处理")
-        if data["restricted"] and task["id"] not in options["approved_task_ids"]:
+        if data["restricted"] and not self.restricted_approved(task,options):
             raise StudyError("此练习存在限次或不可撤回限制；选中任务并明确授权受限练习后才可执行")
         if data.get("inline_submit") or not data.get("explicit_submit", True):
             raise StudyError("检测到即时提交型控件或没有独立提交按钮；为避免填写即提交，需在原页面人工处理")
@@ -997,7 +1034,7 @@ class StudyManager:
         self.checkpoint()
         self.store.submission(self.state["course_id"], ledger_id, fingerprint, "intent")
         self.update(task, status="verifying", **{submission_field:"intent"})
-        self.driver.submit(task, data["questions"], allow_restricted=task["id"] in options["approved_task_ids"])
+        self.driver.submit(task, data["questions"], allow_restricted=self.restricted_approved(task,options))
         feedback = ""
         for delay in (1, 2, 4):
             self.driver.wait(delay)
