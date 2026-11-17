@@ -65,6 +65,24 @@
     if (!existing) taskData.push(task);
     else { if (platform !== 'unknown') existing.platform = platform; existing.locator = task.locator; existing.non_task_candidate=['video','audio','document'].includes(existing.kind)&&!existing.declared_task_point&&![true,'true',1,'1'].includes(data.isJob)&&!element.matches('.ans-job-finished')&&!element.querySelector('.ans-job-icon'); existing.requirement=requirement; if(data.isJob!==undefined)existing.is_task_point=task.is_task_point; if (existing.kind === 'unknown') existing.kind = kind; }
   }
+  // Some optional PDFs share a chapter with mandatory media, so the chapter
+  // itself cannot be used as evidence that the PDF is a required task. Require
+  // a unique object/card match and absence of every independent job signal.
+  for (const attachment of attachments) {
+    const property=attachment.property||{};
+    if (kindOf(attachment.type||property.type||property.module)!=='document'||!property.objectid) continue;
+    const identity=attachment.jobid||attachment._jobid||property._jobid||property.jobid||property.objectid;
+    const task=taskData.find(item=>item.local_id===String(identity));
+    if (!task?.non_task_candidate||attachment.isPassed!=null||attachment.jobid||attachment._jobid||property.jobid) continue;
+    const cards=Array.from(document.querySelectorAll('.ans-attach-ct,[data-study-task-id]')).filter(card=>{
+      const iframe=card.querySelector('iframe'), data=parse(iframe?.getAttribute('data')||card.getAttribute('data'));
+      const local=card.getAttribute('data-study-task-id')||card.getAttribute('data-jobid')||card.getAttribute('jobid')||data._jobid||data.jobid||data.objectid;
+      return String(data.objectid||'')===String(property.objectid)&&String(aliases.get(String(local))||local)===String(identity);
+    });
+    if (cards.length!==1) continue;
+    const card=cards[0],data=parse(card.querySelector('iframe')?.getAttribute('data')||card.getAttribute('data'));
+    task.reference_document=!card.matches('[jobid],[data-jobid],[data-platform-state],[data-locked],.ans-job-finished')&&!card.querySelector('.ans-job-icon')&&!data.jobid&&![true,'true',1,'1'].includes(data.isJob)&&!task.requirement;
+  }
   // Inline images are attachments too, but have no iframe/card. Match their
   // stable resource IDs before considering them optional reference material.
   for (const attachment of attachments) {

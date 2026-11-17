@@ -1034,6 +1034,27 @@ class BrowserFixtureTests(unittest.TestCase):
         self.page.locator('img[src="/plain-resource.png"]').evaluate('e=>e.src="/unrelated-plain-resource.png"')
         self.assertFalse(self.driver.optional_resource(task))
 
+    def test_optional_pdf_in_unfinished_chapter_requires_unique_resource_and_no_job_signals(self):
+        self.page.evaluate('''()=>{window.mArg={attachments:[{type:'document',property:{module:'insertdoc',objectid:'pdf-object',_jobid:'pdf-alias',name:'Reference PDF'}}]};const card=document.createElement('div');card.className='ans-attach-ct';card.id='pdf-reference';const f=document.createElement('iframe');f.src='about:blank';f.setAttribute('data',JSON.stringify({objectid:'pdf-object',_jobid:'pdf-alias'}));card.append(f);document.body.append(card)}''')
+        task={**self.task('pdf-alias'),'kind':'document'}
+        self.assertTrue(self.driver.optional_resource(task))
+        raw=next(t for t in self.page.evaluate(DOM_SCRIPT)['tasks'] if t['local_id']=='pdf-alias')
+        self.assertTrue(raw['reference_document'])
+        self.assertFalse(CourseBrowser.reference_resource({**raw,'reference_document':False},False))
+        for field,value in [('job',True),('isPassed',False)]:
+            self.page.evaluate('p=>window.mArg.attachments[0][p[0]]=p[1]',[field,value])
+            self.assertFalse(self.driver.optional_resource(task))
+            self.page.evaluate('key=>delete window.mArg.attachments[0][key]',field)
+        for attribute,value in [('data-platform-state','todo'),('data-locked','true'),('data-jobid','pdf-alias')]:
+            self.page.locator('#pdf-reference').evaluate('(e,p)=>e.setAttribute(...p)',[attribute,value])
+            self.assertFalse(self.driver.optional_resource(task))
+            self.page.locator('#pdf-reference').evaluate('(e,k)=>e.removeAttribute(k)',attribute)
+        self.page.locator('#pdf-reference').evaluate('e=>e.insertAdjacentHTML("beforeend","<span class=ans-job-icon>Task</span>")')
+        self.assertFalse(self.driver.optional_resource(task))
+        self.page.locator('#pdf-reference .ans-job-icon').evaluate('e=>e.remove()')
+        self.page.locator('#pdf-reference').evaluate('e=>e.after(e.cloneNode(true))')
+        self.assertFalse(self.driver.optional_resource(task))
+
     def test_image_resource_alias_without_dom_jobid_and_conflicting_dom_alias(self):
         self.page.evaluate('''()=>{window.mArg={attachments:[{property:{module:'insertimage',objectid:'plain-resource',_jobid:'plain-alias'}}]};document.body.insertAdjacentHTML('beforeend','<img src="/plain-resource.png">')}''')
         task={**self.task('plain-alias'),'kind':'image'}
