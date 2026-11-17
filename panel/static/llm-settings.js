@@ -57,6 +57,28 @@
     node('prefConfirmReload').checked=prefs.confirm_reload;
   }
   let browserReady=false;
+  let loginReady=false;
+  function displayLoginSettings(value){
+    node('loginAccount').value='';node('loginPassword').value='';node('loginEnabled').checked=!!value.enabled;
+    node('loginAccount').placeholder=value.account_hint?'已保存 '+value.account_hint+'；留空不修改':'手机号 / 超星号';
+    node('loginNotice').textContent=value.blocked?'上次自动登录未成功，已停止重试。请核对账号密码或在课程窗口完成验证。':value.configured?'账号密码已在本机加密保存。'+(value.enabled?'登录失效时自动登录并继续。':'自动登录已关闭。'):'尚未保存账号密码。';
+  }
+  async function loadLoginSettings(){
+    loginReady=false;node('saveLoginSettings').disabled=true;node('clearLoginSettings').disabled=true;
+    try{displayLoginSettings(await request('/api/study/login-settings'));loginReady=true;}
+    catch(error){node('loginNotice').textContent='读取登录设置失败：'+error.message;}
+    finally{node('saveLoginSettings').disabled=!loginReady;node('clearLoginSettings').disabled=!loginReady;}
+  }
+  for(const clear of [false,true])node(clear?'clearLoginSettings':'saveLoginSettings').addEventListener('click',async()=>{
+    if(!loginReady)return;
+    loginReady=false;node('saveLoginSettings').disabled=true;node('clearLoginSettings').disabled=true;
+    try{
+      const payload=clear?{clear:true}:{account:node('loginAccount').value.trim(),password:node('loginPassword').value,enabled:node('loginEnabled').checked};
+      displayLoginSettings(await request('/api/study/login-settings',payload));
+      if(clear)node('loginNotice').textContent='已删除本机保存的账号密码，自动登录已关闭。';
+    }catch(error){node('loginNotice').textContent='保存失败：'+error.message;}
+    finally{node('loginPassword').value='';loginReady=true;node('saveLoginSettings').disabled=false;node('clearLoginSettings').disabled=false;}
+  });
   const toggleBrowserPath=()=>{node('customBrowserRow').hidden=node('prefBrowser').value!=='custom';};
   node('prefBrowser').addEventListener('change',toggleBrowserPath);
   async function loadBrowserPreferences(){
@@ -118,10 +140,11 @@
   window.openLlmSettings=async()=>{
     loadStartupPreferences();node('llmSettings').showModal();notice('正在读取模型配置…');lock(true);
     loadBrowserPreferences();
+    loadLoginSettings();
     try{await window.loadCfg();notice('两页共用同一配置；修改后请先保存，再测试连接。');}
     catch(error){notice('读取失败：'+error.message,true);}finally{lock(false);}
   };
-  node('llmSettings').addEventListener('close',()=>{node('cfgKey').value=''});
+  node('llmSettings').addEventListener('close',()=>{node('cfgKey').value='';node('loginPassword').value='';node('loginAccount').value=''});
   window.addEventListener('DOMContentLoaded',()=>{
     const prefs=window.getPanelPreferences(),current=location.pathname==='/study'?'study':'works';
     const first=!sessionStorage.getItem('lxt-window-started');

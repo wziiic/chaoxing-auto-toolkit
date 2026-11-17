@@ -2,7 +2,7 @@
 import re
 from urllib.parse import parse_qs, urlencode, urlsplit
 
-from study_core import Interrupted, StudyError, course_link, digest
+from study_core import Interrupted, LoginRequired, StudyError, course_link, digest
 
 
 LIST_URL = "https://mooc2-ans.chaoxing.com/visit/courses/list"
@@ -62,7 +62,7 @@ def check_access(page):
         except Exception:
             continue
         if blocked["login"] or "passport" in (urlsplit(frame.url).hostname or ""):
-            raise StudyError("登录已失效，请在课程窗口登录或重新登录学习通桌面端后重试")
+            raise LoginRequired()
         if blocked["verify"]:
             raise StudyError("平台要求验证码或身份验证，已停止读取；请先在课程窗口处理")
 

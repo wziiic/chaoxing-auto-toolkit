@@ -6,7 +6,7 @@ from urllib.parse import parse_qs, urlencode, urlsplit, urlunsplit
 
 import lxt
 
-from study_core import Interrupted, NetworkInterrupted, StudyError, clean_url, digest, question_signature
+from study_core import Interrupted, LoginRequired, NetworkInterrupted, StudyError, clean_url, digest, question_signature
 
 
 QUESTION_SCRIPT = Path(__file__).with_name("study_questions.js").read_text(encoding="utf-8")
@@ -272,6 +272,8 @@ class CourseBrowser:
         self.checkpoint()
         if not self.page or self.page.is_closed():
             raise StudyError("课程浏览器已关闭，请重新读取课程")
+        from study_login import login_url
+        if login_url(getattr(self.page,'url','')):raise LoginRequired()
         result, failures = [], 0
         for frame in list(self.page.frames):
             self.checkpoint()
@@ -284,6 +286,7 @@ class CourseBrowser:
             raise StudyError("所有 frame 均无法读取，可能页面阻塞或浏览器已关闭")
         for frame, data in result:
             if data["guard"]:
+                if data['guard']=='login':raise LoginRequired()
                 reasons = {"login": "登录失效，请在课程浏览器登录后继续", "verification": "出现验证码或身份验证，已暂停等待人工处理", "session_conflict": "检测到多设备或会话冲突，请先处理冲突", "risk": "页面提示访问限制或风控拦截，已暂停，请人工处理，不会自动重试"}
                 raise StudyError(reasons[data["guard"]])
         by_frame = {frame: data for frame, data in result}

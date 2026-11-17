@@ -32,9 +32,9 @@ import uuid
 from typing import Any, Dict, List, Optional
 
 import requests
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import FileResponse, JSONResponse
-from pydantic import BaseModel
+from pydantic import BaseModel, SecretStr
 from pydantic import Field
 
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -383,6 +383,39 @@ def study_asset(name: str):
 
 class StudyLoadReq(BaseModel):
     url: str = Field(min_length=1, max_length=6000)
+
+
+class LoginSettingsReq(BaseModel):
+    account: str = Field(default='', repr=False)
+    password: SecretStr = Field(default_factory=lambda:SecretStr(''), repr=False)
+    enabled: bool = False
+    clear: bool = False
+
+
+@app.get('/api/study/login-settings')
+def study_login_settings():
+    from study_core import StudyError
+    try:
+        return JSONResponse(get_study_manager().login_settings.snapshot(),headers={'Cache-Control':'no-store'})
+    except StudyError as error:
+        raise HTTPException(409,str(error)) from None
+
+
+@app.post('/api/study/login-settings')
+def save_study_login_settings(req: LoginSettingsReq, request: Request):
+    from urllib.parse import urlsplit
+    from study_core import StudyError
+    origin=request.headers.get('origin')
+    if origin and (urlsplit(origin).netloc!=request.url.netloc or urlsplit(origin).scheme!=request.url.scheme):
+        raise HTTPException(403,'请从面板设置页面保存登录凭据')
+    try:
+        password=req.password.get_secret_value()
+        if len(req.account)>200 or len(password)>1000:
+            raise StudyError('账号或密码长度超出允许范围')
+        value=get_study_manager().login_settings.save(req.account,password,req.enabled,req.clear)
+        return JSONResponse(value,headers={'Cache-Control':'no-store'})
+    except StudyError as error:
+        raise HTTPException(409,str(error)) from None
 
 
 class StudyPlaylistReq(BaseModel):

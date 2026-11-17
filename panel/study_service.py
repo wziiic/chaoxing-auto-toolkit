@@ -9,13 +9,15 @@ from pathlib import Path
 from study_browser import CourseBrowser, MediaLoading
 from study_power import learning_awake
 from study_playlist import CoursePlaylist
-from study_core import CourseLock, Interrupted, NetworkInterrupted, PlaybackPaused, StudyError, StudyStore, course_link, digest, normalize_answers, question_signature, redact, study_prompt
+from study_login import LoginSettings, sign_in
+from study_core import CourseLock, Interrupted, LoginRequired, NetworkInterrupted, PlaybackPaused, StudyError, StudyStore, course_link, digest, normalize_answers, question_signature, redact, study_prompt
 
 
 class StudyManager:
     def __init__(self, folder, load_config, call_model, job_callbacks=None, browser_factory=CourseBrowser):
         self.folder = Path(folder)
         self.store = StudyStore(self.folder / "courses.sqlite3")
+        self.login_settings = LoginSettings(self.store)
         self.load_config = load_config
         self.call_model = call_model
         self.jobs = job_callbacks
@@ -279,6 +281,30 @@ class StudyManager:
                             self.run(action, payload)
                     if self.jobs and self.job_id:
                         self.jobs[2](self.job_id, result={"course_id": self.state["course_id"], "status": self.state["status"]})
+                except LoginRequired:
+                    self.driver.pause_media()
+                    try:
+                        self.checkpoint()
+                        sign_in(self.driver,self.login_settings)
+                        self.checkpoint()
+                        if action in ('playlist','start','resume','retry','load','refresh','discover'):
+                            repeat='resume' if action in ('start','resume','retry') else action
+                            with self.lock:
+                                self.checkpoint()
+                                if action=='playlist':
+                                    self.playlist.value.update(status='preparing',message='登录已恢复，继续当前课程')
+                                    self.playlist.save()
+                                self.state.update(status='preparing',message='登录已恢复，正在核验当前任务')
+                                self.commands.put((epoch,repeat,payload))
+                        else:
+                            self.update(status='paused',message='登录已恢复，请核对原页面后继续操作')
+                    except Interrupted:
+                        pass
+                    except Exception as error:
+                        message=str(error) if isinstance(error,StudyError) else '自动登录未完成，请在课程窗口检查登录或网络'
+                        with self.lock:
+                            if epoch==self.epoch:self.state.update(status='paused',message=message)
+                        self.log(message)
                 except Interrupted:
                     self.driver.pause_media()
                     if self.jobs and self.job_id:
@@ -570,6 +596,9 @@ class StudyManager:
                             self.handle_discussion(task,text,True)
                     else:
                         raise StudyError("此任务类型尚未支持自动执行，请打开原页面处理")
+                except LoginRequired:
+                    self.update(task,attempts=max(0,task['attempts']-1),status='paused')
+                    raise
                 except PlaybackPaused as error:
                     self.update(task,attempts=max(0,task['attempts']-1),status='paused',reason=redact(error),playback_interrupted=True)
                     self.log('播放暂停：'+redact(error))

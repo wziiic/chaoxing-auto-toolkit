@@ -103,6 +103,13 @@
 
     </section>
     <section id="startupPanel" role="tabpanel" aria-labelledby="startupTab" hidden>
+      <h3>学习通账号与自动登录</h3>
+      <p class="hint">账号密码使用 Windows 当前用户加密保存，仅用于学习通官方登录页。留空沿用已保存内容；验证码、扫码或密码错误时暂停提示。</p>
+      <label class="preference-row"><span>学习通账号</span><input id="loginAccount" type="text" autocomplete="off" placeholder="手机号 / 超星号"></label>
+      <label class="preference-row"><span>学习通密码</span><input id="loginPassword" type="password" autocomplete="new-password" placeholder="留空不修改已保存密码"></label>
+      <label class="preference-row"><span>登录失效后自动重新登录<small>登录成功后重新核验并继续原课程或播放队列；保存本身不会开始学习。</small></span><input id="loginEnabled" type="checkbox"></label>
+      <div class="row"><button id="saveLoginSettings" class="primary" type="button">保存登录设置</button><button id="clearLoginSettings" type="button">删除保存的账号密码</button></div>
+      <p id="loginNotice" class="notice" role="status">尚未读取登录设置</p>
       <h3>启动设置</h3>
       <label class="preference-row"><span>默认打开的浏览器<small>Chrome / Edge 同时用于新建课程窗口；系统默认和其他浏览器用于打开面板，课程内核自动选择。</small></span><select id="prefBrowser"><option value="system">系统默认浏览器</option><option value="chrome">Google Chrome</option><option value="edge">Microsoft Edge</option><option value="custom">其他浏览器（自定义路径）</option></select></label>
       <label id="customBrowserRow" class="preference-row" hidden><span>浏览器程序路径<small>填写浏览器 .exe 完整路径，不附加参数。</small></span><input id="prefBrowserPath" type="text" placeholder="C:\Program Files\浏览器\browser.exe" autocomplete="off"></label>

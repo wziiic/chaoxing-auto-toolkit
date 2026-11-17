@@ -26,6 +26,12 @@ class Interrupted(Exception):
     pass
 
 
+class LoginRequired(Interrupted, StudyError):
+    """Suspend the current action before renewing authentication."""
+    def __init__(self):
+        super().__init__('登录失效，请在课程浏览器登录后继续')
+
+
 def protect_local_link(value, decrypt=False):
     """Windows user-bound encryption; raw signed URLs never enter the snapshot."""
     if os.name != "nt":
