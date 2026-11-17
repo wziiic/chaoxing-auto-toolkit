@@ -438,22 +438,28 @@ class StudyManager:
 
     def learning_tasks(self, fallback, selected, resume):
         if not self.state.get('lazy_loading'):
-            yield from fallback
+            order={chapter['id']:index for index,chapter in enumerate(self.state['chapters'])}
+            yield from sorted(fallback,key=lambda task:order.get(task['chapter_id'],len(order)))
             return
         chapters=list(self.state['chapters'])
         selected_ids=set(selected or [])
         if selected_ids:
             wanted={t['chapter_id'] for t in self.state['tasks'] if t['id'] in selected_ids}
             chapters=[chapter for chapter in chapters if chapter['id'] in wanted]
-        elif resume and self.state.get('active_chapter'):
-            ids=[chapter['id'] for chapter in chapters]
-            if self.state['active_chapter'] in ids:chapters=chapters[ids.index(self.state['active_chapter']):]
+        # An old cursor may be beyond an earlier unfinished or unseen chapter.
+        # Always find the first unresolved chapter in directory order, including
+        # on resume. Completed cached chapters require no navigation or rescan.
+        skipped=0
         for chapter in chapters:
             self.checkpoint()
             cached=[t for t in self.state['tasks'] if t['chapter_id']==chapter['id']]
             # Finished chapters need no navigation on resume; partial/paused chapters are reread.
-            if self.state.get('chapter_states',{}).get(chapter['id'])=='ready' and cached and all(((t.get('reference_only') or t.get('verified')) and not (t['kind']=='discussion' and t.get('auto_discussion') and t.get('discussion_state')!='published')) or (t['kind']=='discussion' and not t.get('is_task_point',True) and not t.get('auto_discussion')) for t in cached):
+            if self.state.get('chapter_states',{}).get(chapter['id'])=='ready' and cached and all(((t.get('reference_only') or (t.get('verified') and t.get('platform')=='done' and t.get('status')=='done')) and not (t['kind']=='discussion' and t.get('auto_discussion') and t.get('discussion_state')!='published')) or (t['kind']=='discussion' and not t.get('is_task_point',True) and not t.get('auto_discussion')) for t in cached):
+                skipped+=sum(t.get('is_task_point',True) for t in cached)
                 continue
+            if skipped:
+                self.log('已跳过 '+str(skipped)+' 个已核验完成的任务点；从目录中首个待检查章节继续')
+                skipped=0
             requested_here=selected_ids.intersection(t['id'] for t in cached)
             fresh=self.discover_chapter(chapter)
             if selected_ids and not requested_here.issubset({t['id'] for t in fresh}):
@@ -548,10 +554,7 @@ class StudyManager:
                         self.log('已确认当前为非任务点参考资料，继续后续任务')
                         continue
                     if platform == "done" and not optional_discussion:
-                        if task['kind'] in ('text','document'):
-                            self.read(task)
-                        else:
-                            self.complete(task)
+                        self.complete(task)
                         continue
                     if platform == "locked":
                         raise StudyError("任务锁定，需满足平台解锁要求")

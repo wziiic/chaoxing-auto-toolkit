@@ -542,7 +542,7 @@ class QueueTests(unittest.TestCase):
         second=copy.deepcopy(first);second.update(id='second-document',local_id='second-document')
         manager.state['tasks'].append(second)
         calls=[]
-        with patch.object(manager.driver,'read_step',create=True,side_effect=lambda task,**kw:calls.append(task['id']) or False), patch.object(manager.driver,'platform',return_value='done'):
+        with patch.object(manager.driver,'read_step',create=True,side_effect=lambda task,**kw:calls.append(task['id']) or False), patch.object(manager.driver,'platform',side_effect=lambda task:'done' if calls.count(task['id'])>=2 else 'todo'):
             manager.command('start')
             until(lambda:manager.snapshot()['status']=='needs_attention')
         self.assertEqual(calls,[first['id'],first['id'],'second-document','second-document'])
