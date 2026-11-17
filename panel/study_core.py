@@ -185,6 +185,16 @@ class StudyStore:
             connection.execute("CREATE TABLE IF NOT EXISTS courses (id TEXT PRIMARY KEY, snapshot TEXT, updated REAL)")
             connection.execute("CREATE TABLE IF NOT EXISTS submissions (course TEXT, task TEXT, fingerprint TEXT, state TEXT, PRIMARY KEY(course,task,fingerprint))")
             connection.execute("CREATE TABLE IF NOT EXISTS course_links (course TEXT PRIMARY KEY, protected BLOB NOT NULL)")
+            connection.execute("CREATE TABLE IF NOT EXISTS course_playlist (id INTEGER PRIMARY KEY CHECK(id=1), snapshot TEXT NOT NULL)")
+
+    def playlist(self):
+        with self.connect() as connection:
+            row=connection.execute('SELECT snapshot FROM course_playlist WHERE id=1').fetchone()
+        return json.loads(row[0]) if row else None
+
+    def save_playlist(self, value):
+        with self.connect() as connection:
+            connection.execute('INSERT OR REPLACE INTO course_playlist VALUES(1,?)',(json.dumps(value,ensure_ascii=False),))
 
     def save_link(self, course, url):
         if course_link(url)[0] != course:

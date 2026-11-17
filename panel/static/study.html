@@ -21,6 +21,13 @@
       <p id="message" class="notice" role="status">请选择课程，或沿用上次记录继续；开始时会核验当前章节状态。</p>
 
     </section>
+    <section class="card" aria-label="课程播放队列">
+      <div class="section-heading"><h2>课程播放队列</h2><span id="playlistState" class="pill">尚未添加</span></div>
+      <p id="playlistNote" class="notice" role="status">选择多门课程，按下方顺序学习；当前课程核验完成后自动进入下一门。</p>
+      <div class="row controls"><button id="playlistChoose">选择多门课程</button><button id="playlistCurrent">加入当前课程</button><button id="playlistStart" class="primary">开始队列</button><button id="playlistPause">暂停队列</button><button id="playlistResume">继续队列</button><button id="playlistStop" class="danger">停止队列</button><button id="playlistSkip">跳过本课程并继续</button><button id="playlistClear">清空队列</button></div>
+      <ol id="playlistItems" class="playlist-items" aria-label="课程播放顺序"></ol>
+      <p class="hint">使用下方学习设置，可调整课程顺序。遇到待核验或人工处理会暂停；跳过不计为完成。队列与进度保存在本机，后台重启后需点击继续。</p>
+    </section>
     <section class="card" id="studySettings" tabindex="-1" aria-label="学习设置">
       <div class="section-heading"><h2>学习设置</h2><span id="queueState" class="pill">未读取</span></div>
       <p id="setupNote" class="notice" role="status">先读取课程，再调整下方设置；点击“开始学习”后才执行未完成任务。</p>
@@ -54,7 +61,7 @@
     <p id="courseDirectoryNote" class="notice" role="status">正在读取账号课程…</p>
     <div id="directoryLoader" class="liquid-status" hidden><span class="liquid-orb" aria-hidden="true"></span><div class="liquid-main"><div class="liquid-label"><span id="directoryLabel">核对账号课程</span><strong id="directoryPercent"></strong></div><div id="directoryBar" class="liquid-track" role="progressbar" aria-label="课程列表读取进度" aria-valuemin="0" aria-valuemax="100"><span class="liquid-fill"></span></div><small id="directoryDetail"></small><small id="directoryTip" class="cat-tip" hidden></small></div></div>
     <div id="courseChoices" class="course-choices" aria-label="账号课程列表"></div>
-    <div class="picker-footer"><p class="hint">选择后读取目录并前往设置；点击“开始学习”才执行。状态未知的课程不会被当作已完成。</p><button id="loadTypedUrl">读取输入的链接</button></div>
+    <div class="picker-footer"><p class="hint">选择后读取目录并前往设置；多选加入队列后点击“开始队列”执行。状态未知的课程不会被当作已完成。</p><button id="playlistAdd" class="primary" hidden>加入队列（0）</button><button id="loadTypedUrl">读取输入的链接</button></div>
   </dialog>
   <dialog id="discussionEditor" aria-labelledby="discussionTitle">
     <div class="section-heading"><h2 id="discussionTitle">编辑讨论</h2><button id="closeDiscussion">关闭</button></div>

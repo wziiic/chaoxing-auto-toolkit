@@ -8,6 +8,7 @@ from pathlib import Path
 
 from study_browser import CourseBrowser, MediaLoading
 from study_power import learning_awake
+from study_playlist import CoursePlaylist
 from study_core import CourseLock, Interrupted, NetworkInterrupted, PlaybackPaused, StudyError, StudyStore, course_link, digest, normalize_answers, question_signature, redact, study_prompt
 
 
@@ -74,6 +75,7 @@ class StudyManager:
         self.job_id = None
         self.models = ThreadPoolExecutor(max_workers=1, thread_name_prefix="study-model")
         self.model_future = None
+        self.playlist = CoursePlaylist(self)
         self.thread = threading.Thread(target=self.worker, daemon=True, name="course-queue")
         self.thread.start()
 
@@ -94,6 +96,7 @@ class StudyManager:
         result["input_url"] = self.course_url or self.state["url"]
         result["restored_from_cache"] = self.restored_from_cache
         result["directory_loading"] = self.directory_snapshot()["status"] == "loading"
+        result['playlist'] = self.playlist.snapshot()
         active = result["status"] in ("preparing", "scanning", "running", "pausing", "stopping")
         result["worker_responsive"] = (not self.closed and self.thread.is_alive()
                                         and (not active or time.monotonic() - self.last_checkpoint < 35))
@@ -147,6 +150,12 @@ class StudyManager:
         if action not in ("load", "refresh", "start", "pause", "resume", "stop", "retry", "open", "discover", "reset_submission", "settings", "discussion", "discussion_settings"):
             raise StudyError("未知的课程队列操作")
         with self.lock:
+            if action in ('pause','stop'):
+                self.playlist.interrupt(action)
+            elif self.playlist.value['status'] in ('running','preparing'):
+                raise StudyError('多课程播放队列正在执行，请先暂停队列')
+            elif action=='resume' and self.playlist.value['status'] in ('paused','stopped'):
+                return self.playlist.command('resume',options=payload)
             if action in ("discussion", "discussion_settings"):
                 task=next((item for item in self.state['tasks'] if item['id']==payload.get('task_id')),None)
                 if not self.loaded or not task or task['kind']!='discussion':
@@ -225,7 +234,7 @@ class StudyManager:
                             self.course_lock = None
                         self.log("队列已暂停；只有点击继续才会恢复" if action == "pause" else "队列已停止，旧响应和延迟动作已失效")
                         continue
-                    if action != "load" and not self.course_lock and (action != "open" or self.loaded):
+                    if action not in ('load','playlist') and not self.course_lock and (action != "open" or self.loaded):
                         self.course_lock = CourseLock(self.folder / "locks", self.state["course_id"])
                         try:
                             self.course_lock.acquire()
@@ -234,12 +243,15 @@ class StudyManager:
                             raise
                     if self.jobs:
                         self.job_id = self.jobs[0]("study", "课程学习")
-                    if action != "load":
+                    if action not in ('load','playlist'):
                         if self.loaded and not self.course_url and (action != "open" or payload.get("task_id")):
                             self.recover_course_link()
                         self.driver.url = self.course_url or getattr(self.driver, "url", None)
                     if action == "load":
                         self.load(payload["url"])
+                    elif action == 'playlist':
+                        with learning_awake(self.log):
+                            self.playlist.run()
                     elif action == "refresh":
                         self.driver.start(self.course_url)
                         self.refresh()

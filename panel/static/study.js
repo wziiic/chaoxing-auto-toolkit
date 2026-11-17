@@ -7,6 +7,8 @@
   const controller = new AbortController();
   let timer = null, directoryTimer = null, state = null, directory = null, initialized = false, busy = false, choosing = false, awaitingSetup = false;
   const selected = new Set();
+  const playlistSelected = new Set();
+  let pickerMode='single', playlistSignature='';
   let settingsSave = Promise.resolve();
   let displayedCourseUrl = '';
   let discussionTask = null;
@@ -73,6 +75,7 @@
   }
   function render(next) {
     state=next;
+    renderPlaylist(next);
     liquid('settings',next.read_progress);
     byId('connection').textContent=next.worker_responsive?'服务已连接':'队列长时间无响应；请关闭课程浏览器后重新读取';
     byId('queueState').textContent=next.network_recovering?'等待网络恢复':statuses[next.status]||next.status;
@@ -135,6 +138,47 @@
     }
     if(!next.chapters.length){const row=element('tr');const cell=element('td','尚未读取课程，或登录 / 页面结构需要处理');cell.colSpan=7;row.append(cell);body.append(row);}
   }
+  async function playlistCommand(action, extra={}) {
+    if(busy)return;
+    busy=true;
+    try {
+      await settingsSave;
+      render(await api('/api/study/playlist',{action,...(['start','resume','skip'].includes(action)?{options:options()}:{}),...extra}));
+      return true;
+    } catch(error) {if(error.name!=='AbortError')message(error.message,true);return false;}
+    finally {busy=false;}
+  }
+  function renderPlaylist(next) {
+    const queue=next.playlist||{items:[],status:'idle'},items=queue.items;
+    const running=['running','preparing'].includes(queue.status), active=['running','preparing','scanning','pausing','stopping'].includes(next.status);
+    byId('playlistState').textContent=`${({idle:'尚未添加',ready:'待开始',running:'执行中',preparing:'准备中',paused:'已暂停',stopped:'已停止',done:'队列结束'})[queue.status]||queue.status} · 完成 ${queue.completed||0}/${items.length}${queue.skipped?' · 跳过 '+queue.skipped:''}`;
+    byId('playlistNote').textContent=queue.message||'选择多门课程，按下方顺序学习；当前课程核验完成后自动进入下一门。';
+    for(const id of ['playlistChoose','playlistCurrent','playlistClear'])byId(id).disabled=running;
+    byId('playlistCurrent').disabled=running||!next.loaded;
+    const pending=items.some(item=>!['done','skipped'].includes(item.status));
+    byId('playlistStart').disabled=active||running||!pending;
+    byId('playlistResume').disabled=active||running||!pending;
+    byId('playlistPause').disabled=!running;
+    byId('playlistStop').disabled=!running&&queue.status!=='paused';
+    byId('playlistSkip').hidden=!['paused','stopped'].includes(queue.status)||!pending;
+    byId('playlistSkip').disabled=active;
+    const signature=JSON.stringify([items,running]);if(signature===playlistSignature)return;playlistSignature=signature;
+    const list=byId('playlistItems');list.replaceChildren();
+    items.forEach((item,index)=>{
+      const row=element('li'),info=element('div',undefined,'playlist-info');
+      info.append(element('strong',item.title));
+      const counts=item.counts||{};
+      info.append(element('small',`${item.status==='skipped'?'已跳过（未完成）':statuses[item.status]||item.status}${counts.discovered!==undefined?' · 已核验 '+counts.verified+' / '+counts.discovered+' 个已发现任务点':''}${item.reason?' · '+item.reason:''}`));
+      const controls=element('div',undefined,'row');
+      for(const [label,offset] of [['上移',-1],['下移',1]]){
+        const button=element('button',label);button.setAttribute('aria-label',label+' '+item.title);button.disabled=running||index+offset<0||index+offset>=items.length;
+        button.addEventListener('click',()=>{const ids=items.map(i=>i.id);[ids[index],ids[index+offset]]=[ids[index+offset],ids[index]];playlistCommand('reorder',{course_ids:ids})});controls.append(button);
+      }
+      const remove=element('button','移除');remove.disabled=running;remove.setAttribute('aria-label','移除 '+item.title);remove.addEventListener('click',()=>playlistCommand('remove',{course_id:item.id}));controls.append(remove);
+      row.append(info,controls);list.append(row);
+    });
+    if(!items.length)list.append(element('li','还没有课程，请选择多门课程或加入当前课程。','hint'));
+  }
   async function loadUrl(url) {
     if(busy||choosing)return;
     if(!url){byId('courseDirectoryNote').textContent='请先选择课程，或在主页面输入有效链接。';return;}
@@ -170,6 +214,14 @@
       info.append(element('strong',course.title));
       const progress=course.total!==null&&course.completed!==null?` · 任务点 ${course.completed} / ${course.total}`:'';
       info.append(element('p',`${statuses[course.platform]||'未知'}${progress}${course.reason?' · '+course.reason:''}`));
+      if(pickerMode==='playlist'){
+        const label=element('label'),check=element('input');check.type='checkbox';
+        const added=state?.playlist?.items.some(item=>item.source_id===course.id);
+        check.checked=added||playlistSelected.has(course.id);check.disabled=!course.url||added;
+        check.setAttribute('aria-label','加入队列 '+course.title);
+        check.addEventListener('change',()=>{check.checked?playlistSelected.add(course.id):playlistSelected.delete(course.id);byId('playlistAdd').textContent=`加入队列（${playlistSelected.size}）`;byId('playlistAdd').disabled=!playlistSelected.size});
+        label.append(check,document.createTextNode(added?' 已在队列':' 选择'));row.append(info,label);list.append(row);continue;
+      }
       const button=element('button',course.url?'选择并读取':'暂无法读取',course.url?'primary':'');
       button.disabled=!course.url||choosing;
       button.addEventListener('click',()=>loadUrl(course.url));row.append(info,button);list.append(row);
@@ -185,10 +237,19 @@
   }
   byId('load').addEventListener('click',async()=>{
     if(busy)return;
+    pickerMode='single';byId('coursePickerTitle').textContent='选择课程';byId('playlistAdd').hidden=true;byId('loadTypedUrl').hidden=false;
     resetTips();liquid('directory',{active:true});
     byId('coursePicker').showModal();byId('courseDirectoryNote').textContent='正在读取当前账号的课程…';
     await readDirectory();
   });
+  byId('playlistChoose').addEventListener('click',async()=>{
+    if(busy)return;
+    pickerMode='playlist';playlistSelected.clear();byId('coursePickerTitle').textContent='选择多门课程加入播放队列';
+    byId('playlistAdd').hidden=false;byId('playlistAdd').disabled=true;byId('playlistAdd').textContent='加入队列（0）';byId('loadTypedUrl').hidden=true;
+    byId('coursePicker').showModal();await readDirectory();
+  });
+  byId('playlistAdd').addEventListener('click',async()=>{if(await playlistCommand('add',{course_ids:Array.from(playlistSelected)}))byId('coursePicker').close()});
+  for(const [id,action] of Object.entries({playlistCurrent:'current',playlistStart:'start',playlistPause:'pause',playlistResume:'resume',playlistStop:'stop',playlistSkip:'skip',playlistClear:'clear'}))byId(id).addEventListener('click',()=>playlistCommand(action));
   byId('closePicker').addEventListener('click',()=>byId('coursePicker').close());
   byId('coursePicker').addEventListener('close',()=>{clearTimeout(directoryTimer);tips()});
   byId('reloadCourses').addEventListener('click',()=>{resetTips();readDirectory(true)});

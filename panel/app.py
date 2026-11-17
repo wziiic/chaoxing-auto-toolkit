@@ -385,6 +385,27 @@ class StudyLoadReq(BaseModel):
     url: str = Field(min_length=1, max_length=6000)
 
 
+class StudyPlaylistReq(BaseModel):
+    action: str
+    course_ids: List[str] = Field(default_factory=list, max_items=50)
+    course_id: str = Field(default='', max_length=128)
+    options: Optional[Dict[str, Any]] = None
+
+
+@app.get('/api/study/playlist')
+def study_playlist_state():
+    return JSONResponse(get_study_manager().playlist.snapshot(), headers={'Cache-Control':'no-store'})
+
+
+@app.post('/api/study/playlist')
+def study_playlist_control(req: StudyPlaylistReq):
+    from study_core import StudyError
+    try:
+        return get_study_manager().playlist.command(req.action, req.course_ids, req.course_id, req.options)
+    except StudyError as error:
+        raise HTTPException(409, str(error)) from None
+
+
 class StudyControlReq(BaseModel):
     action: str
     task_ids: List[str] = []
