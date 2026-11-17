@@ -364,11 +364,11 @@ class CourseBrowser:
     @staticmethod
     def reference_resource(raw, chapter_completed):
         # A uniquely matched, unmarked inline image is presentation content,
-        # even in a chapter which still has required videos. A PDF additionally
-        # needs its own unique resource match and absence of all job evidence.
-        # Media still requires the completed directory signal.
+        # even in a chapter which still has required videos. Other resources need
+        # their own unique resource match and absence of all job evidence.
+        # Loose candidates still require the completed directory signal.
         return bool(raw.get('non_task_candidate') and (chapter_completed or
-                    (raw.get('kind')=='document' and raw.get('reference_document')) or
+                    (raw.get('kind') in ('document','video','audio','link') and raw.get('reference_resource')) or
                     (raw.get('kind')=='image' and raw.get('locator',{}).get('image'))))
 
     def optional_resource(self, task):

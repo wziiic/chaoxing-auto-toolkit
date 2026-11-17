@@ -1039,13 +1039,13 @@ class BrowserFixtureTests(unittest.TestCase):
         task={**self.task('pdf-alias'),'kind':'document'}
         self.assertTrue(self.driver.optional_resource(task))
         raw=next(t for t in self.page.evaluate(DOM_SCRIPT)['tasks'] if t['local_id']=='pdf-alias')
-        self.assertTrue(raw['reference_document'])
-        self.assertFalse(CourseBrowser.reference_resource({**raw,'reference_document':False},False))
+        self.assertTrue(raw['reference_resource'])
+        self.assertFalse(CourseBrowser.reference_resource({**raw,'reference_resource':False},False))
         for field,value in [('job',True),('isPassed',False)]:
             self.page.evaluate('p=>window.mArg.attachments[0][p[0]]=p[1]',[field,value])
             self.assertFalse(self.driver.optional_resource(task))
             self.page.evaluate('key=>delete window.mArg.attachments[0][key]',field)
-        for attribute,value in [('data-platform-state','todo'),('data-locked','true'),('data-jobid','pdf-alias')]:
+        for attribute,value in [('data-platform-state','todo'),('data-locked','true'),('data-jobid','pdf-alias'),('data-is-job','true')]:
             self.page.locator('#pdf-reference').evaluate('(e,p)=>e.setAttribute(...p)',[attribute,value])
             self.assertFalse(self.driver.optional_resource(task))
             self.page.locator('#pdf-reference').evaluate('(e,k)=>e.removeAttribute(k)',attribute)
@@ -1054,6 +1054,20 @@ class BrowserFixtureTests(unittest.TestCase):
         self.page.locator('#pdf-reference .ans-job-icon').evaluate('e=>e.remove()')
         self.page.locator('#pdf-reference').evaluate('e=>e.after(e.cloneNode(true))')
         self.assertFalse(self.driver.optional_resource(task))
+
+    def test_strict_reference_media_and_links_in_unfinished_chapter(self):
+        for kind,module in [('video','insertvideo'),('audio','insertaudio'),('hyperlink','hyperlink')]:
+            with self.subTest(kind=kind):
+                self.page.evaluate('''([kind,module])=>{document.querySelector('#optional-resource')?.remove();const property={module,_jobid:'resource-alias'};const data={_jobid:'resource-alias'};if(kind!=='hyperlink'){property.objectid='resource-object';data.objectid=property.objectid}window.mArg={attachments:[{type:kind,property}]};const card=document.createElement('div');card.id='optional-resource';card.className='ans-attach-ct';const f=document.createElement('iframe');f.src='about:blank';f.setAttribute('data',JSON.stringify(data));card.append(f);document.body.append(card)}''',[kind,module])
+                task={**self.task('resource-alias'),'kind':'link' if kind=='hyperlink' else kind}
+                self.assertTrue(self.driver.optional_resource(task))
+                for field,value in [('job',True),('isPassed',False),('jobid','required-task')]:
+                    self.page.evaluate('p=>window.mArg.attachments[0][p[0]]=p[1]',[field,value])
+                    try:self.assertFalse(self.driver.optional_resource(task))
+                    except StudyError:pass  # Changed identity must also fail closed.
+                    self.page.evaluate('key=>delete window.mArg.attachments[0][key]',field)
+                self.page.locator('#optional-resource iframe').evaluate('e=>e.setAttribute("data",JSON.stringify({_jobid:"different-resource",objectid:"different-object"}))')
+                self.assertFalse(self.driver.optional_resource(task))
 
     def test_image_resource_alias_without_dom_jobid_and_conflicting_dom_alias(self):
         self.page.evaluate('''()=>{window.mArg={attachments:[{property:{module:'insertimage',objectid:'plain-resource',_jobid:'plain-alias'}}]};document.body.insertAdjacentHTML('beforeend','<img src="/plain-resource.png">')}''')

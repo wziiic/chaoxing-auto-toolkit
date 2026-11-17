@@ -566,7 +566,7 @@ class StudyManager:
                     if platform=='unknown' and task['kind'] in ('video','audio'):
                         platform=self.await_media_platform(task)
                     self.update(task, platform=platform)
-                    if task['kind'] in ('video','audio','document','image','unknown') and self.driver.optional_resource(task):
+                    if task['kind'] in ('video','audio','document','image','link','unknown') and self.driver.optional_resource(task):
                         self.update(task,is_task_point=False,reference_only=True,platform='not_applicable',status='reference',verified=False,reason='资料已与页面对应且无必做标记，属于参考资料')
                         self.log('已确认当前为非任务点参考资料，继续后续任务')
                         continue
