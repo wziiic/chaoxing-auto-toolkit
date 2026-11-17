@@ -1018,6 +1018,29 @@ class BrowserFixtureTests(unittest.TestCase):
         self.page.locator('img[_jobid]').evaluate('e=>e.src="/different-resource.png"')
         self.assertFalse(self.driver.optional_resource(task))
 
+    def test_plain_inline_image_without_jobid_is_reference_only_when_unique(self):
+        self.page.evaluate('''()=>{window.mArg={attachments:[{property:{module:'insertimage',objectid:'plain-resource',name:'Illustration'}}]};document.body.insertAdjacentHTML('beforeend','<img src="/plain-resource.png">')}''')
+        task={**self.task('plain-resource'),'kind':'image'}
+        self.assertTrue(self.driver.optional_resource(task))
+        raw=next(t for t in self.page.evaluate(DOM_SCRIPT)['tasks'] if t['local_id']=='plain-resource')
+        self.assertTrue(raw['non_task_candidate'])
+        for attribute,value in [('data-platform-state','todo'),('data-is-job','true'),('data-locked','true')]:
+            self.page.locator('img[src="/plain-resource.png"]').evaluate('(e,p)=>e.setAttribute(...p)',[attribute,value])
+            self.assertFalse(self.driver.optional_resource(task))
+            self.page.locator('img[src="/plain-resource.png"]').evaluate('(e,k)=>e.removeAttribute(k)',attribute)
+        self.page.locator('img[src="/plain-resource.png"]').evaluate('e=>e.after(e.cloneNode())')
+        self.assertFalse(self.driver.optional_resource(task))
+        self.page.locator('img[src="/plain-resource.png"]').last.evaluate('e=>e.remove()')
+        self.page.locator('img[src="/plain-resource.png"]').evaluate('e=>e.src="/unrelated-plain-resource.png"')
+        self.assertFalse(self.driver.optional_resource(task))
+
+    def test_image_resource_alias_without_dom_jobid_and_conflicting_dom_alias(self):
+        self.page.evaluate('''()=>{window.mArg={attachments:[{property:{module:'insertimage',objectid:'plain-resource',_jobid:'plain-alias'}}]};document.body.insertAdjacentHTML('beforeend','<img src="/plain-resource.png">')}''')
+        task={**self.task('plain-alias'),'kind':'image'}
+        self.assertTrue(self.driver.optional_resource(task))
+        self.page.locator('img[src="/plain-resource.png"]').evaluate('e=>e.setAttribute("_jobid","conflicting-alias")')
+        self.assertFalse(self.driver.optional_resource(task))
+
     def test_non_job_knowledge_graph_is_reference_but_job_marker_is_not(self):
         html='''<p>Fixture chapter learning overview.</p><script>window.mArg={attachments:[{type:'knowledgeGraph',job:null,property:{module:'knowledgeGraph',knowledgeGraphId:'fixture-graph'}}]}</script><div class="ans-attach-ct"><iframe data='{"knowledgeGraphId":"fixture-graph"}' src="https://mooc1.chaoxing.com/graph-fixture"></iframe></div>'''
         self.context.route('**/knowledge/cards',lambda route:route.fulfill(content_type='text/html',body=html))

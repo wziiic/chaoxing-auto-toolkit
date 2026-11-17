@@ -72,7 +72,10 @@
     if (String(property.module||'').toLowerCase()!=='insertimage'||!property.objectid) continue;
     const identity=attachment.jobid||attachment._jobid||property._jobid||property.jobid||property.objectid;
     const task=taskData.find(item=>item.local_id===String(identity));
-    const images=Array.from(document.querySelectorAll('img[_jobid]')).filter(image=>image.getAttribute('_jobid')===String(property._jobid||identity)&&[image.getAttribute('src'),image.getAttribute('data-original')].some(value=>value?.includes(String(property.objectid))));
+    const images=Array.from(document.querySelectorAll('img')).filter(image=>(!image.hasAttribute('_jobid')||image.getAttribute('_jobid')===String(property._jobid||identity))&&[image.getAttribute('src'),image.getAttribute('data-original')].some(value=>{
+      if(!value)return false;
+      try{const url=new URL(value,document.baseURI),id=String(property.objectid);return url.pathname.split('/').some(part=>part===id||part.startsWith(id+'.'))||Array.from(url.searchParams.values()).includes(id);}catch{return false;}
+    }));
     if (!task||images.length!==1) continue;
     const image=images[0], container=image.closest('.ans-attach-ct,[data-study-task-id]');
     task.kind='image';
