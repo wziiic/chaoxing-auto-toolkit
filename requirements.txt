@@ -4,3 +4,4 @@ playwright>=1.44
 fastapi>=0.110
 uvicorn>=0.29
 pydantic>=2.6
+fonttools>=4.50

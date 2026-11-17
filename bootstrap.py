@@ -30,6 +30,7 @@ PKG_MAP = {
     "fastapi": "fastapi",
     "uvicorn": "uvicorn",
     "pydantic": "pydantic",
+    "fontTools": "fonttools",
 }
 REQ_FILE = os.path.join(HERE, "requirements.txt")
 MIRROR = "https://pypi.tuna.tsinghua.edu.cn/simple"

@@ -744,6 +744,8 @@ class CourseBrowser:
             if frame in seen:
                 continue
             seen.add(frame)
+            from study_fonts import prepare_question_fonts
+            prepare_question_fonts(frame)
             data = root.evaluate(DOM_SCRIPT) if root else frame.evaluate(DOM_SCRIPT)
             if data["questions"]:
                 frames.append((frame, data))

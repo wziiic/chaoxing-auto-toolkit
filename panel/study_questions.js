@@ -1,7 +1,25 @@
 (scope => {
   const root = scope || document;
   const visible = element => !!element && element.getClientRects().length > 0;
-  const text = element => (element?.innerText || element?.textContent || '').trim();
+  const text = element => {
+    if (!element) return '';
+    const mapping = window.__lxtQuestionFontMap;
+    if (!mapping || !Object.keys(mapping).length) return (element.innerText || element.textContent || '').trim();
+    const read = node => {
+      if (node.nodeType === Node.TEXT_NODE) {
+        if (!getComputedStyle(node.parentElement).fontFamily.includes('font-cxsecret')) return node.textContent;
+        return Array.from(node.textContent).map(ch => {
+          if (!(ch in mapping)) return ch;
+          if (!mapping[ch]) throw new Error('题目字体存在无法识别的字形，未发送模型或提交');
+          return mapping[ch];
+        }).join('');
+      }
+      if (node.nodeType !== Node.ELEMENT_NODE || /^(SCRIPT|STYLE|INPUT)$/.test(node.tagName)) return '';
+      if (node.tagName === 'BR') return '\n';
+      return Array.from(node.childNodes).map(read).join('') + (/^(P|DIV|LI)$/.test(node.tagName)?'\n':'');
+    };
+    return read(element).trim();
+  };
   const selector = '.singleQuesId, [data-question-id], .questionLi, .TiMu, .question-item, .ans-videoquiz';
   const candidates = Array.from(root.querySelectorAll(selector));
   if (root.matches?.(selector)) candidates.unshift(root);
