@@ -10,7 +10,7 @@ from playwright.sync_api import sync_playwright
 
 def main():
     queue=dict(items=[],status='idle',position=0,completed=0,skipped=0,message='')
-    state=dict(playlist=queue,status='ready',loaded=True,course_id='fixture',input_url='',worker_responsive=True,
+    state=dict(playlist=queue,status='ready',loaded=False,course_id='fixture',input_url='',worker_responsive=True,
                chapters=[],tasks=[],logs=[],options={},counts={},message='',current='',catalog_complete=False)
     courses=[dict(id=str(n),title='测试课程 '+str(n),url='https://fixture.invalid',platform='todo',completed=0,total=3) for n in (1,2,3)]
     calls=[];errors=[]
@@ -27,6 +27,11 @@ def main():
             elif path=='/api/study/courses':request.fulfill(json=dict(status='ready',courses=courses,checked=3,total=3,complete=True,message='模拟课程'))
             elif path=='/api/config':request.fulfill(json={'llm':{'base_url':'https://fixture.invalid','model':'fixture','has_key':False}})
             elif path=='/api/browser-settings':request.fulfill(json={'preferences':{'choice':'system','custom_path':''},'available':{'chrome':True,'edge':True}})
+            elif path=='/api/study/control':
+                payload=request.request.post_data_json;calls.append(payload)
+                if payload['action']=='pause':queue['status']='paused';state['status']='paused';queue['items'][0]['status']='paused'
+                elif payload['action']=='stop':queue['status']='stopped';state['status']='stopped'
+                request.fulfill(json=state)
             elif path=='/api/study/playlist':
                 payload=request.request.post_data_json;calls.append(payload);action=payload['action']
                 if action=='add':
@@ -52,13 +57,20 @@ def main():
         page.locator('#playlistAdd').click()
         page.wait_for_function("document.querySelectorAll('#playlistItems li').length===2")
         assert calls[0]['course_ids']==['2','1']
+        assert not page.locator('#all').is_disabled(), 'A new multi-course queue must start without first loading a single course'
         page.get_by_role('button',name='上移 测试课程 1',exact=True).click()
         page.wait_for_function("document.querySelector('#playlistItems strong').textContent==='测试课程 1'")
-        page.locator('#playlistStart').click()
-        page.wait_for_function("document.querySelector('#playlistPause').disabled===false")
-        assert page.locator('#playlistStart').is_disabled()
-        page.locator('#playlistPause').click()
+        assert page.locator('#studySettings #playlistItems').count()==1
+        assert page.locator('#playlistStart,#playlistPause,#playlistResume,#playlistStop').count()==0
+        page.locator('#all').click()
+        page.wait_for_function("document.querySelector('#pause').disabled===false")
+        assert page.locator('#all').is_disabled()
+        page.locator('#pause').click()
         page.locator('#playlistSkip').wait_for(state='visible')
+        page.locator('#resume').click()
+        page.wait_for_function("document.querySelector('#pause').disabled===false")
+        assert calls[-1]['action']=='resume'
+        page.locator('#pause').click()
         page.locator('#playlistSkip').click()
         page.wait_for_function("document.querySelector('#playlistItems').textContent.includes('已跳过（未完成）')")
         assert '完成 0/2' in page.locator('#playlistState').inner_text()

@@ -21,15 +21,12 @@
       <p id="message" class="notice" role="status">请选择课程，或沿用上次记录继续；开始时会核验当前章节状态。</p>
 
     </section>
-    <section class="card" aria-label="课程播放队列">
-      <div class="section-heading"><h2>课程播放队列</h2><span id="playlistState" class="pill">尚未添加</span></div>
+    <section class="card" id="studySettings" tabindex="-1" aria-label="学习与播放队列">
+      <div class="section-heading"><h2>学习与播放队列</h2><div class="row"><span id="playlistState" class="pill">尚未添加</span><span id="queueState" class="pill">未读取</span></div></div>
+      <div class="row controls"><button id="playlistChoose">选择多门课程</button><button id="playlistCurrent">加入当前课程</button><button id="playlistClear">清空队列</button><button id="playlistSkip">跳过本课程并继续</button></div>
       <p id="playlistNote" class="notice" role="status">选择多门课程，按下方顺序学习；当前课程核验完成后自动进入下一门。</p>
-      <div class="row controls"><button id="playlistChoose">选择多门课程</button><button id="playlistCurrent">加入当前课程</button><button id="playlistStart" class="primary">开始队列</button><button id="playlistPause">暂停队列</button><button id="playlistResume">继续队列</button><button id="playlistStop" class="danger">停止队列</button><button id="playlistSkip">跳过本课程并继续</button><button id="playlistClear">清空队列</button></div>
       <ol id="playlistItems" class="playlist-items" aria-label="课程播放顺序"></ol>
-      <p class="hint">使用下方学习设置，可调整课程顺序。遇到待核验或人工处理会暂停；跳过不计为完成。队列与进度保存在本机，后台重启后需点击继续。</p>
-    </section>
-    <section class="card" id="studySettings" tabindex="-1" aria-label="学习设置">
-      <div class="section-heading"><h2>学习设置</h2><span id="queueState" class="pill">未读取</span></div>
+      <p class="hint">多门课程按列表顺序学习，共用下方设置与控制；未添加队列时学习当前课程。待核验或需人工处理时暂停，跳过不计为完成。</p>
       <p id="setupNote" class="notice" role="status">先读取课程，再调整下方设置；点击“开始学习”后才执行未完成任务。</p>
       <div id="settingsLoader" class="liquid-status" hidden>
         <span class="liquid-orb" aria-hidden="true"></span><div class="liquid-main"><div class="liquid-label"><span id="settingsLabel">正在读取课程</span><strong id="settingsPercent"></strong></div><div id="settingsBar" class="liquid-track" role="progressbar" aria-label="课程读取进度" aria-valuemin="0" aria-valuemax="100"><span class="liquid-fill"></span></div><small id="settingsDetail"></small><small id="settingsTip" class="cat-tip" hidden></small></div>
@@ -43,7 +40,7 @@
         <label>遇到需人工处理 <select id="manualPolicy"><option value="pause">暂停队列</option><option value="continue">继续其他可执行任务</option></select></label>
       </div>
       <p class="hint">练习与讨论使用设置中的模型配置。勾选“自动提交讨论”后，必做讨论会生成简短口语化正文并提交。普通练习开启自动提交后不再逐题询问；正式考试仅手动处理。平台未提供所选倍速时自动使用 1×。</p>
-      <div class="row controls"><button id="all" class="primary">开始学习</button><button id="selected">开始选中任务</button><button id="pause">暂停</button><button id="resume">继续上次队列</button><button id="stop" class="danger">停止</button><button id="retry">重试失败 / 核验任务</button><button id="export">导出脱敏记录</button></div>
+      <div class="row controls"><button id="all" class="primary">开始学习</button><button id="pause">暂停</button><button id="resume">继续学习</button><button id="stop" class="danger">停止</button><button id="selected">开始选中任务</button><button id="retry">重试失败 / 核验任务</button><button id="export">导出脱敏记录</button></div>
       <label class="approval"><input id="allowRestricted" type="checkbox"> 我已查看原页面限制，授权当前选中的限次练习（不适用于正式考试）</label>
       <div class="metrics"><div><span>已发现任务点</span><strong id="discovered">0</strong></div><div><span>已核验完成</span><strong id="verified">0</strong></div><div><span>失败</span><strong id="failed">0</strong></div><div><span>需人工处理</span><strong id="manual">0</strong></div><div><span>等待核验</span><strong id="waiting_verification">0</strong></div></div>
       <div class="current"><span id="currentTask">当前没有执行任务</span><progress id="progress" value="0" max="1"></progress><span id="progressText">—</span></div>

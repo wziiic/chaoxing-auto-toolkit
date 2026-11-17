@@ -98,9 +98,13 @@
     }
     if(!choosing&&next.input_url&&byId('courseUrl').value===displayedCourseUrl){byId('courseUrl').value=next.input_url;displayedCourseUrl=next.input_url;}
     const active=['running','scanning','preparing','pausing','stopping'].includes(next.status);
-    for(const id of ['all','selected','retry','resume'])byId(id).disabled=!next.loaded||active;
+    const queued=hasPlaylist();
+    for(const id of ['all','resume'])byId(id).disabled=active||(!queued&&!next.loaded);
+    for(const id of ['selected','retry'])byId(id).disabled=!next.loaded||active||queued;
+    byId('selected').title=queued?'多课程队列按整门课程执行；清空队列后可选择单个任务':'';
+    byId('all').textContent=queued?'开始队列':'开始学习';byId('resume').textContent=queued?'继续队列':'继续学习';
     byId('refresh').disabled=!next.loaded||active;byId('load').disabled=active&&!next.directory_loading;byId('open').disabled=active;
-    byId('pause').disabled=!active;byId('stop').disabled=!next.loaded&&!active;
+    byId('pause').disabled=!active;byId('stop').disabled=!queued&&!next.loaded&&!active;
     const task=next.tasks.find(item=>item.id===next.current);
     byId('currentTask').textContent=task?task.title:(next.current||'当前没有执行任务');
     const progress=task?.progress||{};
@@ -143,23 +147,24 @@
     busy=true;
     try {
       await settingsSave;
-      render(await api('/api/study/playlist',{action,...(['start','resume','skip'].includes(action)?{options:options()}:{}),...extra}));
+      const result=await api('/api/study/playlist',{action,...(['start','resume','skip'].includes(action)?{options:options()}:{}),...extra});
+      if(['start','resume','skip'].includes(action)){awaitingSetup=false;byId('setupNote').textContent='课程队列使用下方学习设置执行，当前课程核验完成后继续下一门。';}
+      render(result);
       return true;
     } catch(error) {if(error.name!=='AbortError')message(error.message,true);return false;}
     finally {busy=false;}
   }
+  function hasPlaylist(){return !!state?.playlist?.items?.some(item=>!['done','skipped'].includes(item.status));}
   function renderPlaylist(next) {
     const queue=next.playlist||{items:[],status:'idle'},items=queue.items;
     const running=['running','preparing'].includes(queue.status), active=['running','preparing','scanning','pausing','stopping'].includes(next.status);
-    byId('playlistState').textContent=`${({idle:'尚未添加',ready:'待开始',running:'执行中',preparing:'准备中',paused:'已暂停',stopped:'已停止',done:'队列结束'})[queue.status]||queue.status} · 完成 ${queue.completed||0}/${items.length}${queue.skipped?' · 跳过 '+queue.skipped:''}`;
+    byId('playlistState').hidden=!items.length;
+    byId('playlistState').textContent=`${items.length} 门课程 · 完成 ${queue.completed||0}/${items.length}${queue.skipped?' · 跳过 '+queue.skipped:''}`;
     byId('playlistNote').textContent=queue.message||'选择多门课程，按下方顺序学习；当前课程核验完成后自动进入下一门。';
+    byId('playlistNote').hidden=!items.length;
     for(const id of ['playlistChoose','playlistCurrent','playlistClear'])byId(id).disabled=running;
     byId('playlistCurrent').disabled=running||!next.loaded;
     const pending=items.some(item=>!['done','skipped'].includes(item.status));
-    byId('playlistStart').disabled=active||running||!pending;
-    byId('playlistResume').disabled=active||running||!pending;
-    byId('playlistPause').disabled=!running;
-    byId('playlistStop').disabled=!running&&queue.status!=='paused';
     byId('playlistSkip').hidden=!['paused','stopped'].includes(queue.status)||!pending;
     byId('playlistSkip').disabled=active;
     const signature=JSON.stringify([items,running]);if(signature===playlistSignature)return;playlistSignature=signature;
@@ -177,7 +182,7 @@
       const remove=element('button','移除');remove.disabled=running;remove.setAttribute('aria-label','移除 '+item.title);remove.addEventListener('click',()=>playlistCommand('remove',{course_id:item.id}));controls.append(remove);
       row.append(info,controls);list.append(row);
     });
-    if(!items.length)list.append(element('li','还没有课程，请选择多门课程或加入当前课程。','hint'));
+    list.hidden=!items.length;
   }
   async function loadUrl(url) {
     if(busy||choosing)return;
@@ -249,7 +254,7 @@
     byId('coursePicker').showModal();await readDirectory();
   });
   byId('playlistAdd').addEventListener('click',async()=>{if(await playlistCommand('add',{course_ids:Array.from(playlistSelected)}))byId('coursePicker').close()});
-  for(const [id,action] of Object.entries({playlistCurrent:'current',playlistStart:'start',playlistPause:'pause',playlistResume:'resume',playlistStop:'stop',playlistSkip:'skip',playlistClear:'clear'}))byId(id).addEventListener('click',()=>playlistCommand(action));
+  for(const [id,action] of Object.entries({playlistCurrent:'current',playlistSkip:'skip',playlistClear:'clear'}))byId(id).addEventListener('click',()=>playlistCommand(action));
   byId('closePicker').addEventListener('click',()=>byId('coursePicker').close());
   byId('coursePicker').addEventListener('close',()=>{clearTimeout(directoryTimer);tips()});
   byId('reloadCourses').addEventListener('click',()=>{resetTips();readDirectory(true)});
@@ -276,9 +281,9 @@
   byId('refresh').addEventListener('click',()=>{resetTips();command('refresh')});
   byId('open').addEventListener('click',()=>command('open'));
   async function startLearning(taskIds) {await settingsSave;awaitingSetup=false;byId('setupNote').textContent='已按当前设置开始学习；修改设置会暂停执行。';return command('start',{task_ids:taskIds});}
-  byId('all').addEventListener('click',()=>startLearning([]));
+  byId('all').addEventListener('click',()=>hasPlaylist()?playlistCommand('start'):startLearning([]));
   byId('selected').addEventListener('click',()=>selected.size?startLearning(Array.from(selected)):message('请先选择任务',true));
-  for(const action of ['pause','resume','stop','retry'])byId(action).addEventListener('click',()=>command(action));
+  for(const action of ['pause','resume','stop','retry'])byId(action).addEventListener('click',()=>hasPlaylist()&&action==='resume'?playlistCommand('resume'):command(action));
   for(const id of ['autoFill','autoSubmit','autoSubmitDiscussion','mutePlayback','rate','manualPolicy','allowRestricted'])byId(id).addEventListener('change',async()=>{if(state?.status==='running')await command('pause');await saveSettings()});
   byId('selectAll').addEventListener('change',event=>{selected.clear();if(event.target.checked)for(const task of state?.tasks||[])selected.add(task.id);if(state)render(state);saveSettings()});
   byId('export').addEventListener('click',async()=>{try{const result=await api('/api/study/export');const url=URL.createObjectURL(new Blob([JSON.stringify(result,null,2)],{type:'application/json'}));const link=element('a');link.href=url;link.download='课程执行记录.json';link.click();URL.revokeObjectURL(url);}catch(error){message(error.message,true)}});
