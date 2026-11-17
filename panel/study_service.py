@@ -772,6 +772,7 @@ class StudyManager:
         last_progress = time.monotonic()
         last_time = -1
         buffering = None
+        native_pause_recoveries = 0
         last_tick = wall_time()
         while True:
             self.driver.wait(1)
@@ -826,6 +827,18 @@ class StudyManager:
                 if state.get('time_limit'):
                     raise PlaybackPaused('平台已达到允许的学习时长上限；请按平台提示处理后继续，不会循环重播')
                 if reason=='pointer_left_window':
+                    if (native_pause_recoveries == 0 and state.get('focused') is True
+                            and state.get('online') is True and state.get('playback_allowed') is True
+                            and state['ready'] >= 3):
+                        # A pointer event is only a correlation, not proof of a
+                        # hidden-page restriction. Try the native player once in
+                        # an actually visible/focused page; never alter events,
+                        # visibility, platform limits or a trusted user pause.
+                        native_pause_recoveries += 1
+                        self.checkpoint()
+                        self.log('可见课程窗口在鼠标移出后暂停，尝试一次原生继续；再次暂停将保留进度并停止重试')
+                        self.driver.play(task, options['rate'], mute=options.get('mute', False))
+                        continue
                     raise PlaybackPaused('鼠标离开课程窗口后触发平台暂停，页面即使仍有焦点也会发生；请返回课程窗口并点击继续，此课无法保证后台播放')
                 if reason=='user_control':
                     raise PlaybackPaused('检测到播放器控件操作后暂停；保留当前位置，点击继续才恢复')

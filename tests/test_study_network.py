@@ -87,6 +87,32 @@ class NetworkQueueTests(unittest.TestCase):
             with self.assertRaises(PlaybackPaused):manager.media(task,{'rate':1})
             reload.assert_not_called()
 
+    def test_visible_pointer_pause_tries_native_play_once(self):
+        manager,task=self.manager()
+        paused={**OFFLINE,'online':True,'error':0,'ready':4,'focused':True,'pause_reason':'pointer_left_window'}
+        with patch.object(manager.driver,'media_state',side_effect=[paused,paused,ENDED]), \
+             patch.object(manager.driver,'play') as play,patch.object(manager,'verify'):
+            manager.watch_media(task,{'rate':2,'mute':True})
+        self.assertEqual(play.call_count,2)
+        self.assertTrue(all(call.args[1]==2 and call.kwargs['mute'] for call in play.call_args_list))
+        self.assertEqual(manager.driver.submit_count,0)
+
+    def test_repeated_pointer_pause_does_not_loop(self):
+        manager,task=self.manager()
+        paused={**OFFLINE,'online':True,'error':0,'ready':4,'focused':True,'pause_reason':'pointer_left_window'}
+        with patch.object(manager.driver,'media_state',return_value=paused),patch.object(manager.driver,'play') as play:
+            with self.assertRaises(PlaybackPaused):manager.watch_media(task,{'rate':1})
+        self.assertEqual(play.call_count,2)
+
+    def test_pointer_recovery_requires_real_focus_and_authorized_player(self):
+        for extra in ({'focused':False},{'hidden':True},{'job_limit':True},{'time_limit':True},
+                      {'playback_allowed':False},{'pause_reason':'user_control'}):
+            manager,task=self.manager()
+            paused={**OFFLINE,'online':True,'error':0,'ready':4,'focused':True,'pause_reason':'pointer_left_window',**extra}
+            with patch.object(manager.driver,'media_state',return_value=paused),patch.object(manager.driver,'play') as play:
+                with self.assertRaises(PlaybackPaused):manager.watch_media(task,{'rate':1})
+            self.assertEqual(play.call_count,1)
+
     def test_pause_and_stop_cancel_reconnect_even_when_network_returns(self):
         for action in ('pause','stop'):
             with self.subTest(action=action):
