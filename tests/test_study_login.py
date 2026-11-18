@@ -77,6 +77,35 @@ class LoginTests(unittest.TestCase):
             manager.command('start');until(lambda:manager.state['status']=='paused')
         login.assert_called_once();self.assertEqual(manager.state['message'],'需要验证');self.assertTrue(manager.commands.empty())
 
+    def test_authorized_reset_rechecks_same_task_after_login_without_submitting(self):
+        manager=self.manager();task=manager.state['tasks'][0]
+        task.update(submission='intent',status='verifying')
+        manager.store.submission(manager.state['course_id'],task['id'],'fixture','intent')
+        original=manager.reset_submission;calls=[]
+        def reset(payload):
+            calls.append(copy.deepcopy(payload))
+            if len(calls)==1:raise LoginRequired()
+            original(payload)
+        with patch.object(manager,'reset_submission',side_effect=reset),patch('study_service.sign_in') as login:
+            manager.command('reset_submission',{'task_id':task['id'],'acknowledge_unsubmitted':True})
+            until(lambda:manager.state['status']=='ready' and task.get('submission')=='')
+        login.assert_called_once();self.assertEqual(len(calls),2)
+        self.assertEqual(calls[0],calls[1]);self.assertTrue(calls[1]['acknowledge_unsubmitted'])
+        self.assertEqual(manager.driver.submit_count,0)
+        self.assertEqual(manager.store.submission(manager.state['course_id'],task['id'],'fixture'),'retry_authorized')
+
+    def test_pause_during_authorized_reset_login_cancels_reset(self):
+        manager=self.manager();task=manager.state['tasks'][0]
+        task.update(submission='intent',status='verifying')
+        manager.store.submission(manager.state['course_id'],task['id'],'fixture','intent')
+        def login(*args):manager.command('pause');manager.checkpoint()
+        with patch.object(manager,'reset_submission',side_effect=LoginRequired()) as reset,patch('study_service.sign_in',side_effect=login):
+            manager.command('reset_submission',{'task_id':task['id'],'acknowledge_unsubmitted':True})
+            until(lambda:manager.state['status']=='paused')
+        reset.assert_called_once();self.assertTrue(manager.commands.empty())
+        self.assertTrue(manager.store.pending_intent(manager.state['course_id'],task['id']))
+        self.assertEqual(manager.driver.submit_count,0)
+
     def test_playlist_recovers_login_at_same_course(self):
         manager=self.manager();manager.playlist.command('current');calls=[]
         def run(action,payload):

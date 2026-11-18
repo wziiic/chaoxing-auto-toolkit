@@ -290,7 +290,11 @@ class StudyManager:
                         self.checkpoint()
                         sign_in(self.driver,self.login_settings)
                         self.checkpoint()
-                        if action in ('playlist','start','resume','retry','load','refresh','discover'):
+                        # An explicitly approved reset has not changed the ledger
+                        # when LoginRequired is raised: activation/questions run
+                        # before authorize_submission_retry. Recheck that same
+                        # task after login, preserving acknowledgement and epoch.
+                        if action in ('playlist','start','resume','retry','load','refresh','discover') or (action=='reset_submission' and payload.get('acknowledge_unsubmitted') is True):
                             repeat='resume' if action in ('start','resume','retry') else action
                             with self.lock:
                                 self.checkpoint()
