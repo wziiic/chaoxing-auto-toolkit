@@ -12,6 +12,7 @@ from study_browser import CourseBrowser, MediaLoading
 from study_power import learning_awake
 from study_playlist import CoursePlaylist
 from study_login import LoginSettings, sign_in
+from study_model_network import model_connection_available
 from study_core import AnswerFormatError, CourseLock, Interrupted, LoginRequired, NetworkInterrupted, PlaybackPaused, StudyError, StudyStore, course_link, digest, normalize_answers, question_signature, redact, study_prompt
 
 
@@ -872,6 +873,26 @@ class StudyManager:
             if not self.answer(task,options,embedded=True):return False
         raise StudyError('连续弹题仍未结束，已暂停核查；不会绕过弹窗启动视频')
 
+    def wait_for_model_network(self):
+        self.update(network_recovering=True,message='模型网络或代理暂不可用，等待连接恢复后自动继续；可随时暂停或停止')
+        successes=0
+        failures=0
+        try:
+            while successes<2:
+                self.checkpoint()
+                if model_connection_available(self.load_config()):
+                    successes+=1
+                    if successes<2:self.wait(1)
+                else:
+                    successes=0
+                    failures+=1
+                    self.wait(min(2**min(failures,5),30))
+            self.update(message='模型连接已恢复，继续当前任务')
+        finally:
+            with self.lock:
+                self.state['network_recovering']=False
+                self.store.save(self.state)
+
     def request_model(self, prompt):
         if self.model_future and not self.model_future.done():
             self.log("上次模型请求仍在结束中；旧响应已失效，等待后再请求")
@@ -899,6 +920,7 @@ class StudyManager:
                     self.log('模型连接暂时中断（'+type(error).__name__+'），等待恢复后重试生成（'+str(attempt+1)+'/5）；尚未填写或提交')
                     self.update(message='模型连接中断，正在自动重试生成；可随时暂停或停止')
                     self.wait(min(2 ** (attempt+1),30))
+                    self.wait_for_model_network()
                     continue
                 if attempt:self.update(message='模型连接已恢复，继续当前任务')
                 return result

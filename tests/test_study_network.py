@@ -20,6 +20,8 @@ ENDED={**OFFLINE,'current':100,'error':0,'ready':4,'online':True,'ended':True}
 
 class NetworkQueueTests(unittest.TestCase):
     def manager(self):
+        probe=patch('study_service.model_connection_available',return_value=True)
+        probe.start();self.addCleanup(probe.stop)
         folder=tempfile.TemporaryDirectory();self.addCleanup(folder.cleanup)
         manager=StudyManager(folder.name,lambda:{},lambda *_:{},browser_factory=FakeBrowser)
         self.addCleanup(manager.close)
@@ -175,6 +177,25 @@ class NetworkQueueTests(unittest.TestCase):
             with self.assertRaises(StudyError):manager.request_model('题目')
         self.assertEqual(model.call_count,6)
         self.assertEqual(manager.driver.submit_count,0)
+
+    def test_model_outage_waits_for_two_successful_probes_without_generating(self):
+        manager,task=self.manager()
+        with patch('study_service.model_connection_available',side_effect=[False,False,True,False,True,True]) as probe, \
+             patch.object(manager,'wait'),patch.object(manager,'call_model') as model:
+            manager.wait_for_model_network()
+        self.assertEqual(probe.call_count,6)
+        model.assert_not_called()
+        self.assertFalse(manager.snapshot()['network_recovering'])
+        self.assertEqual(manager.driver.submit_count,0)
+
+    def test_pause_cancels_model_connection_wait(self):
+        manager,task=self.manager()
+        def cancel(_):
+            manager.epoch+=1
+            manager.checkpoint()
+        with patch('study_service.model_connection_available',return_value=False),patch.object(manager,'wait',side_effect=cancel):
+            with self.assertRaises(Interrupted):manager.wait_for_model_network()
+        self.assertFalse(manager.snapshot()['network_recovering'])
 
     def test_pause_during_model_retry_cancels_generation(self):
         from requests.exceptions import ConnectionError
