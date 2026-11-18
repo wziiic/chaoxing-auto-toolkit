@@ -1338,6 +1338,24 @@ class BrowserFixtureTests(unittest.TestCase):
         self.page.locator('#coursetree').evaluate("element=>element.removeAttribute('data-total-chapters')")
         self.assertFalse(self.page.evaluate(DOM_SCRIPT)["catalog_complete"])
 
+    def test_native_directory_requires_matching_unfiltered_server_response(self):
+        self.driver.url=LINK
+        source='<input id="_studystate"><input id="countListSearchChapter" value="-1"><ul><div class="posCatalog_select" data-chapter-id="101"></div><div class="posCatalog_select" data-chapter-id="102"></div></ul>'
+        response=SimpleNamespace(url='https://mooc1.chaoxing.com/mooc-ans/mycourse/studentstudycourselist?courseId=1&clazzid=2',ok=True,request=SimpleNamespace(method='GET'),text=lambda:source)
+        # Keep the fixture identity independent of the signed public LINK.
+        self.driver.url='https://mooc1.chaoxing.com/mycourse/studentstudy?courseId=1&clazzid=2'
+        self.driver.capture_catalogue(response)
+        chapters=[{'id':'101'},{'id':'102'}]
+        self.assertTrue(self.driver.static_catalogue_complete(chapters))
+        self.assertFalse(self.driver.static_catalogue_complete(chapters[::-1]))
+        self.assertFalse(self.driver.static_catalogue_complete(chapters[:1]))
+        for body in (source.replace('value="-1"','value="2"'),source.replace('</ul>','<span class="loading"></span></ul>'),source.replace('data-chapter-id="102"','data-chapter-id="101"'),source.replace('data-chapter-id="102"','')):
+            self.driver.catalogue_source=body
+            self.assertFalse(self.driver.static_catalogue_complete(chapters))
+        response.url=response.url.replace('clazzid=2','clazzid=3')
+        self.driver.capture_catalogue(response)
+        self.assertIsNone(self.driver.catalogue_source)
+
     def test_scan_counts_task_points_not_chapters(self):
         chapters, tasks, complete = self.driver.scan('fixture-course', lambda chapter: None)
         self.assertEqual(len(chapters), 2)

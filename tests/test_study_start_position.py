@@ -63,5 +63,39 @@ class StartPositionTests(unittest.TestCase):
             manager.command('start');until(lambda:manager.state['status']=='needs_attention')
         read.assert_not_called();self.assertTrue(manager.state['tasks'][0]['verified'])
 
+    def test_resume_revalidates_stale_incomplete_directory(self):
+        manager=self.manager();manager.state['directory_complete']=False
+        manager.command('resume',{'auto_fill':True,'auto_submit':True})
+        until(lambda:manager.state['status']=='done')
+        self.assertTrue(manager.state['directory_complete'])
+        self.assertEqual(manager.driver.catalogue_count,2)
+
+    def test_incomplete_or_missing_directory_does_not_claim_completion(self):
+        for missing in (False,True):
+            with self.subTest(missing=missing):
+                manager=self.manager();manager.state['directory_complete']=False
+                chapters=list(manager.state['chapters'])
+                manager.driver.catalogue=lambda:(chapters[:-1],True) if missing else (chapters,False)
+                manager.command('resume',{'auto_fill':True,'auto_submit':True})
+                until(lambda:manager.state['status']=='needs_attention')
+                self.assertFalse(manager.state['catalog_complete'])
+
+    def test_revalidated_new_chapter_is_processed_before_completion(self):
+        manager=self.manager();manager.state['directory_complete']=False
+        chapters=list(manager.state['chapters'])+[{'id':'104','title':'New','parent_id':'','locked':False}]
+        manager.driver.catalogue=lambda:(chapters,True)
+        manager.command('resume',{'auto_fill':True,'auto_submit':True})
+        until(lambda:manager.state['status']=='done')
+        self.assertIn('104',manager.driver.chapter_calls)
+        self.assertIn('submit:104a',manager.driver.events)
+
+    def test_selected_scope_does_not_revalidate_or_expand_directory(self):
+        manager=self.manager();manager.state['directory_complete']=False
+        manager.state['tasks']=manager.driver.chapter_tasks(manager.state['chapters'][2])
+        manager.command('start',{'task_ids':['103a'],'auto_fill':True,'auto_submit':True})
+        until(lambda:manager.state['status']=='needs_attention')
+        self.assertEqual(manager.driver.catalogue_count,1)
+        self.assertEqual(manager.driver.chapter_calls,['103'])
+
 
 if __name__=='__main__':unittest.main()

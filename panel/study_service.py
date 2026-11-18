@@ -446,8 +446,18 @@ class StudyManager:
             order={chapter['id']:index for index,chapter in enumerate(self.state['chapters'])}
             yield from sorted(fallback,key=lambda task:order.get(task['chapter_id'],len(order)))
             return
-        chapters=list(self.state['chapters'])
         selected_ids=set(selected or [])
+        if not selected_ids and not self.state.get('directory_complete'):
+            fresh, complete = self.driver.catalogue()
+            self.checkpoint()
+            old_ids={chapter['id'] for chapter in self.state['chapters']}
+            fresh_ids={chapter['id'] for chapter in fresh}
+            if complete and old_ids.issubset(fresh_ids):
+                states={chapter['id']:self.state.get('chapter_states',{}).get(chapter['id'],'unseen') for chapter in fresh}
+                self.update(chapters=fresh,directory_complete=True,chapter_states=states,
+                            catalog_complete=bool(fresh) and all(value=='ready' for value in states.values()))
+                self.log('已重新核对完整目录；保留已核验任务，新增章节将继续识别')
+        chapters=list(self.state['chapters'])
         if selected_ids:
             wanted={t['chapter_id'] for t in self.state['tasks'] if t['id'] in selected_ids}
             chapters=[chapter for chapter in chapters if chapter['id'] in wanted]

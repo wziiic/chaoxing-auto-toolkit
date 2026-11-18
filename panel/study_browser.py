@@ -66,6 +66,7 @@ class CourseBrowser:
         self.page = None
         self.url = None
         self.chapters = []
+        self.catalogue_source = None
         self.locations = {}
         self.dialog = False
         self.cancel_dialog = False
@@ -121,6 +122,25 @@ class CourseBrowser:
             self.page.on("dialog", self._dialog)
             self.page.on("pageerror", lambda error: self.diagnostic("课程页面脚本报错；如影响播放，请在课程窗口检查，错误未被屏蔽"))
             self.page.on("requestfailed", self.request_failed)
+            self.page.on('response', self.capture_catalogue)
+
+    def capture_catalogue(self, response):
+        parts=urlsplit(response.url)
+        expected=urlsplit(getattr(self,'url',''))
+        if parts.hostname!=expected.hostname or parts.path!='/mooc-ans/mycourse/studentstudycourselist':
+            return
+        self.catalogue_source=None
+        actual_query={k.lower():v for k,v in parse_qs(parts.query).items()}
+        expected_query={k.lower():v for k,v in parse_qs(expected.query).items()}
+        if any(not expected_query.get(key) or actual_query.get(key)!=expected_query[key] for key in ('courseid','clazzid')):
+            return
+        try:
+            if response.ok and response.request.method=='GET':
+                source=response.text()
+                if len(source)<=4_000_000:
+                    self.catalogue_source=source
+        except Exception:
+            pass
 
     def assistant_script(self, route):
         # This optional tutor SDK can block HTML parsing for over a minute.
@@ -215,6 +235,7 @@ class CourseBrowser:
             self.log("页面弹出确认对话框，已取消；需人工处理后继续")
 
     def goto(self, url):
+        self.catalogue_source=None
         for attempt in range(2):
             started=time.monotonic()
             try:
@@ -351,7 +372,40 @@ class CourseBrowser:
             raise StudyError("未读到稳定章节编号；请确认已登录且课程目录已加载")
         self.chapters = list(chapters.values())
         complete = complete and not failures and not any(data["missing_chapter_ids"] for frame, data in samples)
+        if not complete and not failures and any(data.get('native_catalog') for _,data in samples) and not any(data.get('catalog_loading') or data['missing_chapter_ids'] for _,data in samples):
+            complete = self.static_catalogue_complete(self.chapters)
         return self.chapters, complete
+
+    def static_catalogue_complete(self, chapters):
+        """Compare the native server-rendered directory with the settled live tree.
+
+        Real course trees do not necessarily provide data-total-chapters. Do not
+        infer completeness merely from a stable number of nodes or finished jobs.
+        """
+        self.checkpoint()
+        source=getattr(self,'catalogue_source',None)
+        if not source:
+            return False
+        ids = self.page.evaluate("""html => {
+            const doc=new DOMParser().parseFromString(html,'text/html');
+            const tree=doc.body;
+            if (!tree.querySelector('ul') || !tree.querySelector('#_studystate') ||
+                tree.querySelector('#countListSearchChapter')?.value!=='-1' ||
+                tree.querySelector('[aria-busy="true"],.loading,[data-lazy="true"]') ||
+                tree.hasAttribute('data-total-chapters')) return [];
+            const rows=Array.from(tree.querySelectorAll('.posCatalog_select:not(.firstLayer)'));
+            return rows.map(e => {
+                const direct=e.getAttribute('data-chapter-id')||e.getAttribute('knowledgeid')||e.getAttribute('data-knowledgeid');
+                if (/^\\d+$/.test(direct||'')) return direct;
+                const href=e.getAttribute('href')||e.querySelector('a')?.getAttribute('href')||'';
+                const link=href.match(/[?&](?:chapterId|knowledgeid)=(\\d+)/i);
+                const id=(e.id||'').match(/^(?:cur|chapter|knowledge)[_-]?(\\d+)$/i);
+                const click=(e.getAttribute('onclick')||e.querySelector('[onclick]')?.getAttribute('onclick')||'').match(/getTeacherAjax\\(\\s*['"]?\\d+['"]?\\s*,\\s*['"]?\\d+['"]?\\s*,\\s*['"]?(\\d+)/);
+                return link?.[1]||id?.[1]||click?.[1]||'';
+            });
+        }""", source)
+        expected = [chapter['id'] for chapter in chapters]
+        return bool(ids) and all(ids) and len(set(ids)) == len(ids) and ids == expected
 
     @staticmethod
     def reference_only(chapter_id, samples, failures):
