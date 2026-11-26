@@ -386,17 +386,18 @@ def execute(work_id, action, publish, model, log, options=None, before_browser=N
         item.update(status='执行中',error='');remember(item)
         store=StudyStore(ROOT/'panel/study-data/courses.sqlite3')
         settings={'rate':1,'mute':True,'auto_fill':False,'auto_submit':False,'manual_policy':'pause',**(options or {})}
-        manual_reading=[]
+        manual_resources=[]
         for resource_id in [r['id'] for r in resources]:
             resource=next(r for r in item['resources'] if r['id']==resource_id)
             checkpoint()
             if resource['completed']:continue
             is_discussion='回复' in resource['condition'] or '回复' in resource['progress']
             if action=='submit' and not is_discussion:continue
-            if not is_discussion and '阅读时长' in resource['condition']:
-                reason='平台要求'+resource['condition']+'，请在原任务页阅读；继续检查其余项目'
+            if not is_discussion and ('阅读时长' in resource['condition'] or '成绩达到' in resource['condition']):
+                is_reading='阅读时长' in resource['condition']
+                reason='平台要求'+resource['condition']+('，请在原任务页阅读' if is_reading else '，请在原任务页确认考核类型并处理')
                 resource['execution']={'status':'manual','reason':reason}
-                manual_reading.append(resource_id)
+                manual_resources.append((resource_id,is_reading))
                 remember(item)
                 log(resource['title']+' · '+reason)
                 continue
@@ -428,8 +429,11 @@ def execute(work_id, action, publish, model, log, options=None, before_browser=N
                 if publish:raise StudyError('任务动作已完成，平台尚未确认任务包进度；不重复发布')
             item['status']='执行中';remember(item)
         inspect(item,driver)
-        if any(r['id'] in manual_reading and not r['completed'] for r in item['resources']):
-            raise StudyError('其他项目已检查，仍有原生计时阅读需要在任务页完成')
+        pending_ids={r['id'] for r in item['resources'] if not r['completed']}
+        manual_kinds={'原生计时阅读' if is_reading else '计分任务'
+                      for resource_id,is_reading in manual_resources if resource_id in pending_ids}
+        if manual_kinds:
+            raise StudyError('其他项目已检查，仍需在原任务页处理：'+'、'.join(sorted(manual_kinds)))
         return {'workId':work_id,'verified':item['verified'],'resources':item['resources']}
     except Exception as error:
         if 'item' in locals() and item:
