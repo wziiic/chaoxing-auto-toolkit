@@ -112,6 +112,19 @@ class ActivityTests(unittest.TestCase):
             browser.return_value.ensure_session.assert_not_called()
         self.assertFalse(activities.RUN_LOCK.locked())
 
+    def test_timed_reading_does_not_block_later_resources(self):
+        reading={'id':'1','title':'文章','condition':'阅读时长10分钟','progress':'阅读时长 1 分钟','completed':False}
+        video={'id':'2','title':'视频','condition':'完成率80%','progress':'0%','completed':False}
+        item={'workId':'one','course_id':'course','resources':[reading,video]}
+        def complete_video(*args):
+            video['completed']=True
+        with patch.object(activities,'cached',return_value=[item]),patch.object(activities,'remember'),patch.object(activities,'CourseBrowser'),patch.object(activities,'StudyStore'),patch.object(activities,'restore_session'),patch.object(activities,'inspect',return_value=item['resources']),patch.object(activities,'preview',return_value=([],[])) as preview,patch.object(activities,'refresh_resource'),patch.object(activities,'record_resources',return_value=item['resources']),patch.object(activities,'wait_frame'),patch.object(activities,'resource_course',side_effect=complete_video):
+            with self.assertRaisesRegex(StudyError,'原生计时阅读'):
+                activities.execute('one','auto',True,MagicMock(),MagicMock())
+        self.assertEqual(preview.call_args.args[2]['id'],'2')
+        self.assertEqual(reading['execution']['status'],'manual')
+        self.assertFalse(reading['completed'])
+
     def test_discussion_prompt_is_short_and_does_not_invent_experiences(self):
         prompt=activities.discussion_prompt('测试题目')
         self.assertIn('60到120字',prompt)

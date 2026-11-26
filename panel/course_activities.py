@@ -386,12 +386,20 @@ def execute(work_id, action, publish, model, log, options=None, before_browser=N
         item.update(status='执行中',error='');remember(item)
         store=StudyStore(ROOT/'panel/study-data/courses.sqlite3')
         settings={'rate':1,'mute':True,'auto_fill':False,'auto_submit':False,'manual_policy':'pause',**(options or {})}
+        manual_reading=[]
         for resource_id in [r['id'] for r in resources]:
             resource=next(r for r in item['resources'] if r['id']==resource_id)
             checkpoint()
             if resource['completed']:continue
             is_discussion='回复' in resource['condition'] or '回复' in resource['progress']
             if action=='submit' and not is_discussion:continue
+            if not is_discussion and '阅读时长' in resource['condition']:
+                reason='平台要求'+resource['condition']+'，请在原任务页阅读；继续检查其余项目'
+                resource['execution']={'status':'manual','reason':reason}
+                manual_reading.append(resource_id)
+                remember(item)
+                log(resource['title']+' · '+reason)
+                continue
             log('处理任务包项目：'+resource['title'])
             pages,frames=preview(driver,item,resource,store)
             try:
@@ -420,6 +428,8 @@ def execute(work_id, action, publish, model, log, options=None, before_browser=N
                 if publish:raise StudyError('任务动作已完成，平台尚未确认任务包进度；不重复发布')
             item['status']='执行中';remember(item)
         inspect(item,driver)
+        if any(r['id'] in manual_reading and not r['completed'] for r in item['resources']):
+            raise StudyError('其他项目已检查，仍有原生计时阅读需要在任务页完成')
         return {'workId':work_id,'verified':item['verified'],'resources':item['resources']}
     except Exception as error:
         if 'item' in locals() and item:
