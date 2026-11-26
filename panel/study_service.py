@@ -152,9 +152,12 @@ class StudyManager:
 
     def command(self, action, payload=None):
         payload = payload or {}
+        from course_activities import RUN_LOCK
         if action not in ("load", "refresh", "start", "pause", "resume", "stop", "retry", "open", "discover", "reset_submission", "settings", "discussion", "discussion_settings"):
             raise StudyError("未知的课程队列操作")
         with self.lock:
+            if RUN_LOCK.locked() and action in ('start','resume','retry','load','refresh','open','discover','discussion'):
+                raise StudyError('独立任务包正在执行，请先在作业面板停止任务包')
             if action in ('pause','stop'):
                 self.playlist.interrupt(action)
             elif self.playlist.value['status'] in ('running','preparing'):

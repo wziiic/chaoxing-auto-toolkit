@@ -43,6 +43,7 @@ sys.path.insert(0, ROOT)
 
 import lxt  # noqa: E402  复用 Cookie 解密 / 表单提取 / 题目解析
 import browser_preferences
+import course_activities
 from windows_process import background_options
 sys.path.insert(0, HERE)
 
@@ -72,6 +73,11 @@ DEFAULT_CONFIG = {
 app = FastAPI(title="学习通作业面板", version="1.0")
 STUDY_MANAGER = None
 STUDY_MANAGER_LOCK = threading.Lock()
+
+
+@app.on_event('startup')
+def restore_course_activities():
+    course_activities.restore_interrupted()
 
 
 @app.middleware("http")
@@ -136,7 +142,14 @@ def read_worklist() -> List[dict]:
 
 
 def refresh_worklist() -> Dict[str, Any]:
-    return run_script([os.path.join(ROOT, "list_works.py")], timeout=180)
+    result=run_script([os.path.join(ROOT, "list_works.py")], timeout=180)
+    try:
+        if get_study_manager().snapshot()['status'] in ('running','preparing','scanning','pausing','stopping'):
+            raise course_activities.StudyError('学习队列正在执行，任务包沿用缓存，暂停后可刷新')
+        course_activities.discover()
+    except Exception as error:
+        result['out']+='\n独立任务读取未完成，已保留原结果：'+(str(error) if isinstance(error,course_activities.StudyError) else type(error).__name__)
+    return result
 
 
 # ---------------------------------------------------------------- LLM 作答
@@ -413,6 +426,7 @@ def save_study_login_settings(req: LoginSettingsReq, request: Request):
         if len(req.account)>200 or len(password)>1000:
             raise StudyError('账号或密码长度超出允许范围')
         value=get_study_manager().login_settings.save(req.account,password,req.enabled,req.clear)
+        course_activities.clear_session()
         return JSONResponse(value,headers={'Cache-Control':'no-store'})
     except StudyError as error:
         raise HTTPException(409,str(error)) from None
@@ -645,15 +659,32 @@ def bench(req: BenchReq):
 
 @app.get("/api/works")
 def get_works(refresh: bool = True):
+    warning=''
     if refresh:
         r = refresh_worklist()
-        if r["code"] != 0:
+        warning=r['out'].split('独立任务读取未完成，已保留原结果：',1)[-1] if '独立任务读取未完成' in r['out'] else ''
+        if r["code"] != 0 and not course_activities.cached():
             raise HTTPException(500, f"刷新作业列表失败: {r['out'][:300]}")
+        if r['code']!=0:warning='普通作业列表刷新失败，已显示缓存与独立任务包；请检查登录后重试'
     wl = read_worklist()
     for w in wl:
         w["parsed"] = os.path.exists(os.path.join(work_dir(w["workId"]), "questions.json"))
         w["answered"] = os.path.exists(os.path.join(ROOT, f"answers-{w['workId']}.json"))
-    return {"count": len(wl), "works": wl}
+    wl.extend(course_activities.public_items())
+    return {"count": len(wl), "works": wl,"warning":warning}
+
+
+@app.post('/api/course-activities/stop')
+def stop_course_activities():
+    course_activities.CANCEL.set()
+    return {'message':'已请求停止任务包执行；保留已完成进度及提交记录'}
+
+
+@app.get('/api/course-activities/{work_id}')
+def get_course_activity(work_id: str):
+    item=next((i for i in course_activities.public_items() if i['workId']==work_id),None)
+    if not item:raise HTTPException(404,'任务不在已发现清单中')
+    return item
 
 
 @app.get("/api/questions/{work_id}")
@@ -687,6 +718,13 @@ def create_job(req: JobReq):
     if not req.workIds:
         raise HTTPException(400, "缺少 workIds")
 
+    activities={i['workId']:i for i in course_activities.cached()}
+    if any(wid in activities for wid in req.workIds):
+        manager=get_study_manager()
+        if manager.snapshot()['status'] in ('running','preparing','scanning','pausing','stopping'):
+            raise HTTPException(409,'课程学习队列正在执行，请先暂停，再处理独立任务包')
+        if course_activities.RUN_LOCK.locked():raise HTTPException(409,'已有独立任务包操作正在执行')
+
     titles = {w["workId"]: w.get("title", "") for w in read_worklist()}
     jid = new_job(req.action, f"{req.action} · {','.join(req.workIds)}")
 
@@ -694,6 +732,18 @@ def create_job(req: JobReq):
         results = []
         for wid in req.workIds:
             job_log(jid, f"=== {wid} {titles.get(wid, '')} ===")
+            if wid in activities or wid.startswith('activity-'):
+                if wid not in activities:raise RuntimeError('任务不在已发现清单中，请刷新')
+                manager=get_study_manager()
+                def activity_guard():
+                    with manager.lock:
+                        if manager.state['status'] in ('running','preparing','scanning','pausing','stopping'):
+                            raise course_activities.StudyError('课程队列已启动，任务包未执行；请先暂停队列')
+                result=course_activities.execute(wid,req.action,req.submit,
+                    lambda prompt:call_llm(prompt,cfg),lambda s:job_log(jid,s),
+                    manager.snapshot().get('options',{}),before_browser=activity_guard)
+                results.append(result)
+                continue
             if req.action == "resolve":
                 r = run_script([os.path.join(ROOT, "batch_resolve.py"), "--ids", wid])
                 job_log(jid, r["out"].strip()[-1200:])

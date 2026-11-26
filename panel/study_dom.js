@@ -49,7 +49,7 @@
     if (!identity) continue;
     for (const alias of [identity, property.objectid, property.workid, attachment.jobid, attachment._jobid]) if (alias) aliases.set(String(alias), String(identity));
     const flag=attachment.job??property.isJob;
-    taskData.push({local_id: String(identity), kind: kindOf(attachment.type || property.type || property.module), title: property.name || property.title || attachment.type || '任务点', platform: stateOf(null, attachment), declared_task_point:[true,'true',1,'1'].includes(attachment.job)||[true,'true',1,'1'].includes(property.isJob), is_task_point:![false,'false',0,'0'].includes(flag), requirement:'', reason: '', locator: {attachment: String(identity)}});
+    taskData.push({local_id: String(identity), kind: kindOf(attachment.type || property.type || property.module), title: property.name || property.title || attachment.type || '任务点', platform: stateOf(null, attachment), micro_state:!!attachment.microTopicId&&[true,false,'true','false'].includes(attachment.isPassed), declared_task_point:[true,'true',1,'1'].includes(attachment.job)||[true,'true',1,'1'].includes(property.isJob), is_task_point:![false,'false',0,'0'].includes(flag), requirement:'', reason: '', locator: {attachment: String(identity)}});
   }
   for (const element of document.querySelectorAll('[data-study-task-id], .ans-attach-ct')) {
     const iframe = element.querySelector('iframe');
@@ -63,7 +63,7 @@
     const requirement=(text(element).match(/完成条件[\s\S]{0,260}/)||[''])[0].trim();
     const task = {local_id: canonical, kind, title: element.getAttribute('data-title') || data.name || data.title || iframe?.title || element.getAttribute('title') || kind, platform, is_task_point:![false,'false',0,'0'].includes(data.isJob), requirement, reason: element.getAttribute('data-reason') || '', locator: {dom: String(identity)}};
     if (!existing) taskData.push(task);
-    else { if (platform !== 'unknown') existing.platform = platform; existing.locator = task.locator; existing.non_task_candidate=['video','audio','document','link'].includes(existing.kind)&&!existing.declared_task_point&&![true,'true',1,'1'].includes(data.isJob)&&!element.matches('.ans-job-finished')&&!element.querySelector('.ans-job-icon'); existing.requirement=requirement; if(data.isJob!==undefined)existing.is_task_point=task.is_task_point; if (existing.kind === 'unknown') existing.kind = kind; }
+    else { if (platform !== 'unknown'&&!existing.micro_state) existing.platform = platform; existing.locator = task.locator; existing.non_task_candidate=['video','audio','document','link'].includes(existing.kind)&&!existing.declared_task_point&&![true,'true',1,'1'].includes(data.isJob)&&!element.matches('.ans-job-finished')&&!element.querySelector('.ans-job-icon'); existing.requirement=requirement; if(data.isJob!==undefined)existing.is_task_point=task.is_task_point; if (existing.kind === 'unknown') existing.kind = kind; }
   }
   // Reference documents, media and links may share an unfinished chapter, so
   // its directory state cannot establish that every resource is required. Require

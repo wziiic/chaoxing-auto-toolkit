@@ -746,6 +746,15 @@ class CourseBrowser:
                     raise StudyError("视频任务已识别，但播放器加载超时；请检查网络或系统代理后继续") from error
                 self.wait(.3)
         self.perform(lambda: element.scroll_into_view_if_needed(timeout=3000))
+        if getattr(self,'prefer_native_play',False):
+            # Micro-course templates attach additional tracking to their native
+            # play control. Let that control initialize before the common player.
+            self.perform(lambda:element.evaluate("(e,mute)=>{e.muted=mute;e.setAttribute('data-lxt-playback-allowed','true')}",bool(mute)))
+            handle=element.evaluate_handle("e=>e.closest('.video-js')?.querySelector('.vjs-big-play-button')||null")
+            try:
+                button=handle.as_element()
+                if button and button.is_visible():self.perform(lambda:button.click(timeout=4000))
+            finally:handle.dispose()
         result = self.perform(lambda: element.evaluate("""async (element, options) => { const {rate, mute}=options; element.muted=mute; element.setAttribute('data-lxt-play-started-at',String(Date.now())); element.setAttribute('data-lxt-playback-allowed','true'); const menu=Array.from(element.ownerDocument.querySelectorAll('[data-playback-rate],.vjs-menu-item')).map(item=>Number(item.getAttribute('data-playback-rate')||(item.textContent||'').replace(/[^0-9.]/g,''))).filter(value=>value>=0.5&&value<=2);const supported=rate===1||menu.includes(rate); element.playbackRate=supported?rate:1;let timer;try{const ok=await Promise.race([element.play().then(()=>({ok:true}),error=>({ok:false,error:error.name})),new Promise(resolve=>{timer=setTimeout(()=>resolve({ok:false,error:'StartupTimeout'}),15000)})]);return {...ok,rate:element.playbackRate}}finally{clearTimeout(timer)} }""", {"rate": rate, "mute": bool(mute)}))
         self.checkpoint()
         if not result["ok"]:

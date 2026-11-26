@@ -119,7 +119,7 @@ def discussion(driver, task, text, publish, before_publish):
     native_reply=area(frame).locator('.addReply')
     if native_reply.count()==1:
         # Native topic HTML can appear before its click/input handlers are attached.
-        for attempt in range(50):
+        for attempt in range(225):
             if native_reply.evaluate("e=>!!(e.onclick||e.ownerDocument.defaultView.jQuery?._data?.(e,'events')?.click?.length)"):
                 break
             driver.wait(.2)

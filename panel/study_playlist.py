@@ -50,6 +50,9 @@ class CoursePlaylist:
     def command(self, action, course_ids=None, course_id='', options=None):
         manager=self.manager
         with manager.lock:
+            from course_activities import RUN_LOCK
+            if RUN_LOCK.locked() and action in ('start','resume','skip'):
+                raise StudyError('独立任务包正在执行，请先在作业面板停止任务包')
             if action in ('pause','stop'):
                 if self.value['status'] not in ('running','preparing','paused'):raise StudyError('没有正在执行的播放队列')
                 manager.command(action)

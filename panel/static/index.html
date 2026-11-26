@@ -152,6 +152,7 @@
       <button onclick="batch('verify')">批量核对</button>
       <span class="badge" id="selInfo">未选择</span>
     </div>
+    <p class="hint">课程任务包也会列在这里。可读取项目和完成条件，或点击“自动完成并提交讨论”；已结束任务不执行，已确认完成的项目会跳过。</p>
     <table>
       <thead>
         <tr>
@@ -271,11 +272,12 @@ function stClass(s){
   return 'st-done';
 }
 
-async function refreshWorks(){
+async function refreshWorks(refresh=true){
   try{
     setStatus('刷新中…','run');
-    const d = await api('/api/works?refresh=true');
+    const d = await api('/api/works?refresh='+refresh);
     WORKS = d.works;
+    if(d.warning)log(d.warning);
     renderWorks();
     setStatus(`共 ${d.count} 个作业`, 'ok');
   }catch(e){
@@ -303,7 +305,7 @@ function updateSel(){
 
 function renderWorks(){
   const tb = document.getElementById('worksBody');
-  const list = WORKS.filter(w => FILTER==='all' || w.status.includes('未提交'));
+  const list = WORKS.filter(w => FILTER==='all' || /未提交|待处理|待核验|执行中/.test(w.status));
   if(!list.length){
     tb.innerHTML = '<tr><td colspan="7" class="badge">没有符合条件的作业</td></tr>';
     return;
@@ -312,16 +314,21 @@ function renderWorks(){
     <tr>
       <td><input type="checkbox" style="width:auto" value="${w.workId}" onchange="updateSel()"></td>
       <td>${esc(w.course)}</td>
-      <td>${esc(w.title)}</td>
+      <td>${w.kind==='course_task'?'[任务包] ':''}${esc(w.title)}</td>
       <td><span class="st ${stClass(w.status)}">${esc(w.status)}</span></td>
       <td>${w.parsed ? '<span style="color:#17894f">已抓</span>' : '<span class="badge">—</span>'}</td>
-      <td>${w.answered ? '已作答' : '<span class="badge">未作答</span>'}</td>
+      <td>${w.kind==='course_task'?(w.answered?'已完成':'待完成'):(w.answered ? '已作答' : '<span class="badge">未作答</span>')}</td>
       <td class="nowrap">
+        ${w.kind==='course_task' ? `
+        <button onclick="act('resolve','${w.workId}')">读取任务</button>
+        <button onclick="act('auto','${w.workId}',{submit:true})" class="primary" ${w.ended?'disabled':''}>自动完成并提交讨论</button>
+        <button onclick="showActivity('${w.workId}')">查看任务</button>
+        <button onclick="stopActivities()">停止任务包</button>` : `
         <button onclick="act('resolve','${w.workId}')">抓题</button>
         <button onclick="act('auto','${w.workId}')" class="primary">自动作答</button>
         <button onclick="showQ('${w.workId}')">看题</button>
         <button onclick="showA('${w.workId}')">看答案</button>
-        <button onclick="act('submit','${w.workId}')" class="danger">交卷</button>
+        <button onclick="act('submit','${w.workId}')" class="danger">交卷</button>`}
       </td>
     </tr>`).join('');
   updateSel();
@@ -375,10 +382,23 @@ function pollJob(jid){
           : '<span class="dot err"></span>出错';
         setStatus(j.status==='done' ? '完成' : '出错', j.status==='done'?'ok':'err');
         if(j.error) log('❌ '+j.error);
-        if(j.status==='done') refreshWorks();
+        refreshWorks(false);
       }
     }catch(e){ /* 轮询失败忽略 */ }
   }, 900);
+}
+
+async function showActivity(wid){
+  try{
+    const d=await api('/api/course-activities/'+wid);
+    log('—— '+d.title+' · '+d.status+' ——');
+    if(d.error) log(d.error);
+    (d.resources||[]).forEach(r=>log((r.completed?'✓ ':'○ ')+r.title+' · '+(r.progress||r.condition||'待核验')+(r.execution?' · '+JSON.stringify(r.execution):'')));
+    if(!d.resources?.length)log('请先点击“读取任务”');
+  }catch(e){log(e.message);}
+}
+async function stopActivities(){
+  try{const d=await api('/api/course-activities/stop',{method:'POST'});log(d.message);}catch(e){log(e.message);}
 }
 
 async function showQ(wid){
